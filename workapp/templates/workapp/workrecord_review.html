@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>保存確認</title>
+    <style>
+        body { font-family: "Yu Gothic", "Meiryo", sans-serif; margin: 24px; }
+        h1, h2, h3 { margin-top: 0; }
+        h2 { margin: 0 0 12px; padding-bottom: 4px; border-bottom: 2px solid #333; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0 16px; }
+        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+        th { background: #f3f3f3; }
+        .box { border: 2px solid #333; padding: 16px 20px; margin-bottom: 28px; }
+        .box-new { border-color: #0a7; background: #f7fff9; }
+        .box-existing { border-color: #555; background: #fafafa; }
+        .section { margin-bottom: 28px; }
+        .actions button { margin-right: 8px; padding: 8px 16px; }
+        .note { color: #555; }
+        .ok { color: #0a7; font-weight: bold; }
+        .missing { color: #b00000; }
+        .meta p { margin: 4px 0; }
+    </style>
+</head>
+<body>
+
+    <h1>確認ページ</h1>
+    {% if saved %}
+    <p class="ok">保存しました。</p>
+    {% endif %}
+    <p>
+        <a href="{% url 'workrecord_create' %}?restore=1">作業入力画面に戻る</a>
+        ／
+        <a href="{% url 'workrecord_list' %}">一覧へ</a>
+    </p>
+
+    <div class="box box-new">
+        <h2>① 新規入力データ（今回の伝票）</h2>
+        <div class="meta">
+            <p>伝票番号：{{ data.voucher_no }} ／ 日付：{{ data.date }} ／ 現場：{{ data.site }} ／ 元請：{{ data.general_contractor }} ／ 1次企業：{{ data.primary_company|default:"なし" }} ／ 請求先：{{ data.billing_contractor|default:data.general_contractor }}</p>
+            <p>職人：{{ data.worker }} ／ 手元1：{{ data.temoto1|default:"なし" }} ／ 手元2：{{ data.temoto2|default:"なし" }} ／ 手元3：{{ data.temoto3|default:"なし" }} ／ 応援：{{ data.company|default:"なし" }}</p>
+        </div>
+
+        {% for section in sections %}
+        <div class="section">
+            <h3>{{ section.title }}</h3>
+            {% if section.missing %}
+            <p class="missing">{{ section.missing }}</p>
+            {% endif %}
+            <table>
+                <tr>
+                    <th>作業内容</th>
+                    <th>寸法</th>
+                    <th>作業量</th>
+                    <th>備考</th>
+                    {% if section.kind == "temoto" %}
+                    <th>手元</th>
+                    <th>手元％</th>
+                    {% endif %}
+                    <th>単価</th>
+                    <th>金額</th>
+                </tr>
+                {% for row in section.rows %}
+                <tr>
+                    <td>{{ row.type }}</td>
+                    <td>{{ row.size }}</td>
+                    <td>{{ row.amount }}</td>
+                    <td>{{ row.remark }}</td>
+                    {% if section.kind == "temoto" %}
+                    <td>{{ row.helper }}</td>
+                    <td>{{ row.percent }}</td>
+                    {% endif %}
+                    <td>{% if row.price_mode == "manual" %}手入力{% elif row.unit_price is not None %}{{ row.unit_price }}{% endif %}</td>
+                    <td>{{ row.total_price }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8">表示する行がありません。</td></tr>
+                {% endfor %}
+            </table>
+            {% if section.kind == "temoto" %}
+                {% if section.totals.temoto_mode == "individual" %}
+                <p>個別％を人数で割って適用しています。</p>
+                {% elif section.totals.helper_count %}
+                <p>個別％が未設定のため、人数ルールを適用しています。</p>
+                {% endif %}
+                {% for person in section.totals.person_totals %}
+                <p>{{ person.name }}：＋{{ person.percent }}%（{{ person.amount }} 円）</p>
+                {% endfor %}
+                <p>手元合計：<strong>{{ section.totals.total }} 円</strong></p>
+            {% else %}
+                {% if section.totals.deduction_percent %}
+                <p>小計：{{ section.totals.subtotal }} 円</p>
+                <p>職人 −{{ section.totals.deduction_percent }}%（手元{{ section.totals.helper_count }}人）：−{{ section.totals.deduction }} 円</p>
+                {% endif %}
+                <p>合計金額：<strong>{{ section.totals.total }} 円</strong></p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if needs_confirm and existing %}
+    <div class="box box-existing">
+        <h2>② 既存データ（伝票番号：{{ existing.voucher_no }}）</h2>
+        <p class="note">保存済みの伝票です。入力画面と同じ形で表示しています。</p>
+        <div class="meta">
+            <p>伝票番号：{{ existing.voucher_no }}</p>
+            <p>日付：{{ existing.date }}</p>
+            <p>現場名：{{ existing.site }}</p>
+            <p>元請：{{ existing.general_contractor }}</p>
+            <p>1次企業：{{ existing.primary_company|default:"なし" }}</p>
+            <p>請求先：{{ existing.billing_contractor|default:existing.general_contractor }}</p>
+            <p>職人：{{ existing.worker }}</p>
+            <p>手元1：{{ existing.temoto1|default:"なし" }}</p>
+            <p>手元2：{{ existing.temoto2|default:"なし" }}</p>
+            <p>手元3：{{ existing.temoto3|default:"なし" }}</p>
+            <p>応援企業：{{ existing.company|default:"なし" }}</p>
+        </div>
+        <table>
+            <tr>
+                <th>行</th>
+                <th>作業内容</th>
+                <th>寸法</th>
+                <th>作業量</th>
+                <th>備考</th>
+            </tr>
+            {% for line in existing.lines %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ line.work_type }}</td>
+                <td>{{ line.work_size }}</td>
+                <td>{{ line.work_amount }}</td>
+                <td>{{ line.remark }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">明細がありません。</td></tr>
+            {% endfor %}
+        </table>
+        <form method="post" class="actions">
+            {% csrf_token %}
+            <button type="submit" name="action" value="overwrite">上書きする</button>
+            <button type="submit" name="action" value="create">新規追加する</button>
+            <button type="submit" name="action" value="back">編集に戻る</button>
+        </form>
+    </div>
+    {% endif %}
+
+</body>
+</html>

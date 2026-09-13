@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>伝票入力</title>
+    {% include "workapp/_form_styles.html" %}
+</head>
+<body>
+    <h2>{% if editing_voucher %}伝票の編集{% else %}伝票入力{% endif %}</h2>
+    <nav>
+        <a href="{% url 'workrecord_search' %}">伝票検索</a> |
+        <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">相手別一覧</a> |
+        <a href="{% url 'logout' %}">ログアウト</a>
+    </nav>
+    <p class="note">{% if editing_voucher %}この伝票の内容すべてを表示しています。保存すると元請・職人・手元・応援がまとめて更新されます。{% else %}1回の保存で、元請・職人・手元・応援の金額のもとになります。{% endif %}</p>
+
+    <form method="POST">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <div class="box">
+            <h3>1. 基本</h3>
+            <div class="grid">
+                <label for="{{ form.voucher_no.id_for_label }}">伝票番号</label>
+                <div>{{ form.voucher_no }}{% if form.voucher_no.errors %}<div class="errors">{{ form.voucher_no.errors }}</div>{% endif %}</div>
+                <label for="{{ form.date.id_for_label }}">日付</label>
+                <div>{{ form.date }}{% if form.date.errors %}<div class="errors">{{ form.date.errors }}</div>{% endif %}</div>
+                <label for="{{ form.site.id_for_label }}">現場名</label>
+                <div>{{ form.site }}{% if form.site.errors %}<div class="errors">{{ form.site.errors }}</div>{% endif %}</div>
+                <label for="{{ form.general_contractor_display.id_for_label }}">元請</label>
+                <div>{{ form.general_contractor_display }}{% if form.general_contractor_display.errors %}<div class="errors">{{ form.general_contractor_display.errors }}</div>{% endif %}<p class="note">現場に紐づく元請です。変更できません。</p></div>
+                <label for="{{ form.primary_company.id_for_label }}">1次企業</label>
+                <div>{{ form.primary_company }}{% if form.primary_company.errors %}<div class="errors">{{ form.primary_company.errors }}</div>{% endif %}<p class="note">上位企業へ請求する場合だけ選んでください。元請リストから選べます。</p></div>
+                <label for="{{ form.billing_contractor_display.id_for_label }}">請求先</label>
+                <div>{{ form.billing_contractor_display }}{% if form.billing_contractor_display.errors %}<div class="errors">{{ form.billing_contractor_display.errors }}</div>{% endif %}<p class="note">1次企業を選んだときは1次企業、未選択のときは現場の元請です。</p></div>
+            </div>
+        </div>
+
+        <div class="box">
+            <h3>2. 職人・手元・応援</h3>
+            <div class="grid">
+                <label for="{{ form.worker.id_for_label }}">職人</label>
+                <div>{{ form.worker }}{% if form.worker.errors %}<div class="errors">{{ form.worker.errors }}</div>{% endif %}</div>
+                <label for="{{ form.company.id_for_label }}">応援企業</label>
+                <div>{{ form.company }}{% if form.company.errors %}<div class="errors">{{ form.company.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto1.id_for_label }}">手元1</label>
+                <div>{{ form.temoto1 }}{% if form.temoto1.errors %}<div class="errors">{{ form.temoto1.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto2.id_for_label }}">手元2</label>
+                <div>{{ form.temoto2 }}{% if form.temoto2.errors %}<div class="errors">{{ form.temoto2.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto3.id_for_label }}">手元3</label>
+                <div>{{ form.temoto3 }}{% if form.temoto3.errors %}<div class="errors">{{ form.temoto3.errors }}</div>{% endif %}</div>
+                <div></div>
+            </div>
+            <p class="note">職人と手元は、作業員マスタの全員から選べます。同じ伝票で同じ人を職人と手元の両方には選べません。職人の控除は人数のみ（1人35%、2人以上40%）。手元の個人％は手元の支払だけに使います。</p>
+        </div>
+
+        <div class="box">
+            <h3>3. 作業内容（最大15行）</h3>
+            <p class="note">決まった単価がない行は「手入力」を選び、請求額・支払額・応援額を別々に入れてください。手元は支払額から、いつもの人数％で計算します。</p>
+            <table class="lines">
+                <tr>
+                    <th class="num">行</th>
+                    <th>作業内容</th>
+                    <th class="size">寸法</th>
+                    <th class="num">作業量</th>
+                    <th>備考</th>
+                    <th class="mode">単価</th>
+                    <th class="money">請求額</th>
+                    <th class="money">支払額</th>
+                    <th class="money">応援額</th>
+                </tr>
+                {% for line in work_lines %}
+                <tr class="work-line" data-manual="{% if line.price_mode == 'manual' %}1{% else %}0{% endif %}">
+                    <td>{{ forloop.counter }}</td>
+                    <td><input type="text" name="work_type_{{ forloop.counter }}" value="{{ line.work_type }}"></td>
+                    <td>
+                        <select name="work_size_{{ forloop.counter }}" id="work_size_{{ forloop.counter }}">
+                            <option value="">選択してください</option>
+                            {% for size in work_sizes %}
+                            <option value="{{ size.id }}" {% if line.work_size == size.id|stringformat:"s" %}selected{% endif %}>{{ size.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="number" name="work_amount_{{ forloop.counter }}" value="{{ line.work_amount }}"></td>
+                    <td><input type="text" name="remark_{{ forloop.counter }}" maxlength="255" value="{{ line.remark }}"></td>
+                    <td>
+                        <select name="price_mode_{{ forloop.counter }}" class="price-mode">
+                            <option value="master" {% if line.price_mode != "manual" %}selected{% endif %}>マスタ</option>
+                            <option value="manual" {% if line.price_mode == "manual" %}selected{% endif %}>手入力</option>
+                        </select>
+                    </td>
+                    <td><input type="number" class="manual-amount" name="manual_billing_{{ forloop.counter }}" value="{{ line.manual_billing }}"></td>
+                    <td><input type="number" class="manual-amount" name="manual_pay_{{ forloop.counter }}" value="{{ line.manual_pay }}"></td>
+                    <td><input type="number" class="manual-amount" name="manual_ouen_{{ forloop.counter }}" value="{{ line.manual_ouen }}"></td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+
+        <button type="submit" class="save">保存して確認へ</button>
+    </form>
+    {% include "workapp/_searchable_selects.html" %}
+
+<script>
+function fetchUnitPrice(rateType, targetId, sizeId, callback) {
+    if (!targetId || !sizeId) {
+        callback(null);
+        return;
+    }
+    fetch(`/get_unit_price/?type=${rateType}&id=${targetId}&size=${sizeId}`)
+        .then(response => response.json())
+        .then(data => { callback(data.unit_price); });
+}
+
+function setupAutoPrice() {
+    const worker = document.getElementById("id_worker");
+    const company = document.getElementById("id_company");
+    const unitPriceInput = document.getElementById("id_unit_price");
+
+    for (let i = 1; i <= 15; i++) {
+        const sizeSelect = document.getElementById(`work_size_${i}`);
+        if (!sizeSelect) continue;
+        sizeSelect.addEventListener("change", () => {
+            const sizeId = sizeSelect.value;
+            const contractorId = window.billingContractorId ? window.billingContractorId() : "";
+            if (contractorId) {
+                fetchUnitPrice("contractor", contractorId, sizeId, (price) => {
+                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
+                });
+            }
+            if (worker && worker.value) {
+                fetchUnitPrice("worker", worker.value, sizeId, (price) => {
+                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
+                });
+            }
+            if (company && company.value) {
+                fetchUnitPrice("company", company.value, sizeId, (price) => {
+                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
+                });
+            }
+        });
+    }
+}
+document.addEventListener("DOMContentLoaded", function() {
+    setupAutoPrice();
+    document.querySelectorAll(".price-mode").forEach(function(sel) {
+        sel.addEventListener("change", syncManualAmounts);
+    });
+    syncManualAmounts();
+});
+
+function syncManualAmounts() {
+    document.querySelectorAll("tr.work-line").forEach(function(row) {
+        var mode = row.querySelector(".price-mode");
+        var manual = mode && mode.value === "manual";
+        row.querySelectorAll(".manual-amount").forEach(function(input) {
+            input.readOnly = !manual;
+            input.style.background = manual ? "#fff" : "#eee";
+        });
+    });
+}
+</script>
+</body>
+</html>

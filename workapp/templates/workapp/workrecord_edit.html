@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>作業記録の編集</title>
+    {% include "workapp/_form_styles.html" %}
+</head>
+<body>
+    <h2>作業記録の編集</h2>
+    <nav>
+        <a href="{% url 'workrecord_search' %}">伝票検索</a> |
+        <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">相手別一覧</a> |
+        <a href="{% url 'logout' %}">ログアウト</a>
+    </nav>
+
+    {% if locked %}
+    <div class="box">
+        <h3>印刷済みのため編集できません</h3>
+        <p>期間印刷画面で「印刷を取り消す」と、未請求に戻してから編集できます。</p>
+        <p>相手：{{ printed_document.party_name }} ／ {{ printed_document.period_start }} 〜 {{ printed_document.period_end }}</p>
+    </div>
+    {% else %}
+    <p>印刷済みのため、この伝票は編集できません。</p>
+    <form method="POST" action="{% if list_qs %}?{{ list_qs }}{% endif %}">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+        {{ form.work_size }}
+
+        <div class="box">
+            <h3>1. 基本</h3>
+            <div class="grid">
+                <label for="{{ form.voucher_no.id_for_label }}">伝票番号</label>
+                <div>{{ form.voucher_no }}{% if form.voucher_no.errors %}<div class="errors">{{ form.voucher_no.errors }}</div>{% endif %}</div>
+                <label for="{{ form.date.id_for_label }}">日付</label>
+                <div>{{ form.date }}{% if form.date.errors %}<div class="errors">{{ form.date.errors }}</div>{% endif %}</div>
+                <label for="{{ form.site.id_for_label }}">現場名</label>
+                <div>{{ form.site }}{% if form.site.errors %}<div class="errors">{{ form.site.errors }}</div>{% endif %}</div>
+                <label for="{{ form.general_contractor_display.id_for_label }}">元請</label>
+                <div>{{ form.general_contractor_display }}{% if form.general_contractor_display.errors %}<div class="errors">{{ form.general_contractor_display.errors }}</div>{% endif %}<p class="note">現場に紐づく元請です。変更できません。</p></div>
+                <label for="{{ form.primary_company.id_for_label }}">1次企業</label>
+                <div>{{ form.primary_company }}{% if form.primary_company.errors %}<div class="errors">{{ form.primary_company.errors }}</div>{% endif %}<p class="note">上位企業へ請求する場合だけ選んでください。元請リストから選べます。</p></div>
+                <label for="{{ form.billing_contractor_display.id_for_label }}">請求先</label>
+                <div>{{ form.billing_contractor_display }}{% if form.billing_contractor_display.errors %}<div class="errors">{{ form.billing_contractor_display.errors }}</div>{% endif %}<p class="note">1次企業を選んだときは1次企業、未選択のときは現場の元請です。</p></div>
+            </div>
+        </div>
+
+        <div class="box">
+            <h3>2. 職人・手元・応援</h3>
+            <div class="grid">
+                <label for="{{ form.worker.id_for_label }}">職人</label>
+                <div>{{ form.worker }}{% if form.worker.errors %}<div class="errors">{{ form.worker.errors }}</div>{% endif %}</div>
+                <label for="{{ form.company.id_for_label }}">応援企業</label>
+                <div>{{ form.company }}{% if form.company.errors %}<div class="errors">{{ form.company.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto1.id_for_label }}">手元1</label>
+                <div>{{ form.temoto1 }}{% if form.temoto1.errors %}<div class="errors">{{ form.temoto1.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto2.id_for_label }}">手元2</label>
+                <div>{{ form.temoto2 }}{% if form.temoto2.errors %}<div class="errors">{{ form.temoto2.errors }}</div>{% endif %}</div>
+                <label for="{{ form.temoto3.id_for_label }}">手元3</label>
+                <div>{{ form.temoto3 }}{% if form.temoto3.errors %}<div class="errors">{{ form.temoto3.errors }}</div>{% endif %}</div>
+                <div></div>
+            </div>
+            <p class="note">職人と手元は、作業員マスタの全員から選べます。同じ伝票で同じ人を職人と手元の両方には選べません。職人の控除は人数のみ（1人35%、2人以上40%）。手元の個人％は手元の支払だけに使います。</p>
+        </div>
+
+        <div class="box">
+            <h3>3. 作業内容</h3>
+            <div class="grid">
+                <label for="{{ form.work_type.id_for_label }}">作業内容</label>
+                <div>{{ form.work_type }}{% if form.work_type.errors %}<div class="errors">{{ form.work_type.errors }}</div>{% endif %}</div>
+                <label for="{{ form.dimension.id_for_label }}">寸法</label>
+                <div>{{ form.dimension }}{% if form.dimension.errors %}<div class="errors">{{ form.dimension.errors }}</div>{% endif %}</div>
+                <label for="{{ form.work_amount.id_for_label }}">作業量</label>
+                <div>{{ form.work_amount }}{% if form.work_amount.errors %}<div class="errors">{{ form.work_amount.errors }}</div>{% endif %}</div>
+                <label for="{{ form.remark.id_for_label }}">備考</label>
+                <div>{{ form.remark }}{% if form.remark.errors %}<div class="errors">{{ form.remark.errors }}</div>{% endif %}</div>
+                <label for="{{ form.unit_price.id_for_label }}">単価</label>
+                <div>{{ form.unit_price }}{% if form.unit_price.errors %}<div class="errors">{{ form.unit_price.errors }}</div>{% endif %}</div>
+                <label for="{{ form.total_price.id_for_label }}">合計金額</label>
+                <div>{{ form.total_price }}{% if form.total_price.errors %}<div class="errors">{{ form.total_price.errors }}</div>{% endif %}</div>
+            </div>
+        </div>
+
+        <button type="submit" class="save">保存する</button>
+    </form>
+    {% include "workapp/_searchable_selects.html" %}
+    {% endif %}
+</body>
+</html>

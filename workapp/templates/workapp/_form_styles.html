@@ -1,0 +1,72 @@
+<style>
+body {
+    font-family: "Yu Gothic", "Meiryo", sans-serif;
+    color: #111;
+    max-width: 1400px;
+    margin: 24px auto;
+    padding: 0 16px 40px;
+}
+h2 { margin: 0 0 8px; }
+nav { margin: 0 0 20px; color: #555; }
+.note { color: #555; font-size: 0.9em; margin: 0 0 16px; }
+.box {
+    border: 1px solid #ccc;
+    background: #fafafa;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+.box h3 {
+    margin: 0 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #333;
+    font-size: 16px;
+}
+.grid {
+    display: grid;
+    grid-template-columns: 160px 1fr 160px 1fr;
+    gap: 10px 12px;
+    align-items: center;
+}
+.grid label { font-weight: bold; }
+.field-input, select, input[type="text"], input[type="number"], input[type="date"] {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: 15px;
+}
+.errors {
+    color: #b00000;
+    margin: 0 0 12px;
+}
+table.lines {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+table.lines th, table.lines td {
+    border: 1px solid #ccc;
+    padding: 6px 8px;
+    text-align: left;
+}
+table.lines th { background: #f3f3f3; }
+table.lines input, table.lines select { width: 100%; box-sizing: border-box; padding: 4px 6px; }
+table.lines .num { width: 72px; }
+table.lines .size { width: 120px; }
+table.lines .money { width: 92px; }
+table.lines .mode { width: 88px; }
+.readonly-box {
+    padding: 6px 8px;
+    background: #eee;
+    border: 1px solid #ccc;
+    min-height: 22px;
+}
+button.save {
+    margin-top: 8px;
+    padding: 10px 24px;
+    font-size: 16px;
+}
+@media (max-width: 800px) {
+    .grid { grid-template-columns: 1fr; }
+}
+</style>

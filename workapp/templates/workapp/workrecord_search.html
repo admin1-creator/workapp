@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>伝票検索</title>
+</head>
+<body>
+{% load display_labels %}
+    <h2>伝票検索</h2>
+    <p>
+        <a href="{% url 'workrecord_create' %}">新規入力</a> |
+        <a href="{% url 'workrecord_list' %}">相手別一覧</a> |
+        <a href="{% url 'workrecord_print_period' %}">期間指定印刷</a> |
+        <a href="{% url 'logout' %}">ログアウト</a>
+    </p>
+    <p>既存の伝票を探してから入力できます。見つからない場合は「新規入力」へ進んでください。</p>
+
+    <form method="get" style="margin: 16px 0; padding: 12px; border: 1px solid #ccc;">
+        <p>
+            <label>日付：<input type="date" name="date" value="{{ date }}"></label>
+        </p>
+        <p>
+            <label>現場名：<input type="text" name="site" value="{{ site }}" placeholder="一部でも可"></label>
+        </p>
+        <p>
+            <label>作業員／応援：
+                <select name="party">
+                    <option value="">指定しない</option>
+                    <optgroup label="作業員">
+                        {% for worker in workers %}
+                        <option value="{{ worker.party_key }}" {% if party == worker.party_key %}selected{% endif %}>{{ worker.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    <optgroup label="応援">
+                        {% for company in companies %}
+                        <option value="{{ company.party_key }}" {% if party == company.party_key %}selected{% endif %}>{{ company.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                </select>
+            </label>
+        </p>
+        <p>
+            <label>伝票番号：<input type="text" name="voucher_no" value="{{ voucher_no }}" placeholder="一部でも可"></label>
+        </p>
+        <button type="submit">検索する</button>
+    </form>
+
+    {% if error %}
+    <p style="color: #b00000;">{{ error }}</p>
+    {% endif %}
+
+    {% if submitted %}
+        {% if groups %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <tr>
+                <th>伝票番号</th>
+                <th>日付</th>
+                <th>現場名</th>
+                <th>上位企業</th>
+                <th>請求先</th>
+                <th>関係者</th>
+                <th>明細数</th>
+                <th></th>
+            </tr>
+            {% for group in groups %}
+            <tr>
+                <td><a href="{% url 'workrecord_voucher_detail' group.pk %}">{{ group.voucher_no }}</a></td>
+                <td>{{ group.date }}</td>
+                <td>{{ group|site_with_gc }}</td>
+                <td>{{ group|upper_company }}</td>
+                <td>{{ group.billing_contractor }}</td>
+                <td>{{ group.parties|join:"、" }}</td>
+                <td>{{ group.line_count }}</td>
+                <td><a href="{% url 'workrecord_voucher_detail' group.pk %}">詳細</a></td>
+            </tr>
+            {% endfor %}
+        </table>
+        <p>{{ groups|length }} 件の伝票</p>
+        {% else %}
+        <p>該当する伝票はありません。<a href="{% url 'workrecord_create' %}">新規入力する</a></p>
+        {% endif %}
+    {% else %}
+    <p>条件を入れて「検索する」を押してください。</p>
+    {% endif %}
+    {% include "workapp/_searchable_filters.html" %}
+</body>
+</html>

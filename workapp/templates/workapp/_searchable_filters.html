@@ -1,0 +1,18 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'admin/css/vendor/select2/select2.min.css' %}">
+<style>
+    .select2-container { min-width: 220px; }
+</style>
+<script src="{% static 'admin/js/vendor/jquery/jquery.min.js' %}"></script>
+<script src="{% static 'admin/js/vendor/select2/select2.full.min.js' %}"></script>
+<script src="{% static 'admin/js/vendor/select2/i18n/ja.js' %}"></script>
+<script>
+(function($) {
+    $("select[name='worker_id'], select[name='moto_company'], select[name='company_id'], select[name='party']").select2({
+        width: "style",
+        allowClear: true,
+        language: "ja",
+        placeholder: "検索して選ぶ"
+    });
+})(jQuery);
+</script>

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>作業記録一覧</title>
+</head>
+<body>
+{% load display_labels %}
+
+    <h2>作業記録一覧</h2>
+    <p>
+        <a href="{% url 'workrecord_search' %}">伝票検索</a> |
+        <a href="{% url 'workrecord_create' %}">新規入力</a> |
+        <a href="{% url 'workrecord_print_period' %}{% if period_print_qs %}?{{ period_print_qs }}{% endif %}">期間指定印刷</a> |
+        <a href="{% url 'logout' %}">ログアウト</a>
+    </p>
+
+    <form method="get" style="margin: 16px 0; padding: 12px; border: 1px solid #ccc;">
+        <p>表示する相手を選んでください。</p>
+        {% include "workapp/_party_filter_fields.html" %}
+        <button type="submit">表示する</button>
+    </form>
+
+    {% if has_filter %}
+    <p><strong>{{ selected_name }}</strong> の伝票{% if document_title %}（{{ document_title }}）{% endif %}</p>
+
+    {% if kind == "moto" %}
+    <div style="margin: 12px 0; padding: 12px; border: 1px solid #ccc;">
+        {% if closing_period %}
+        <p>
+            締め日：毎月 {{ closing_day }} 日 ／
+            今の締め対象期間：{{ closing_period.0|date:"Y-m-d" }} 〜 {{ closing_period.1|date:"Y-m-d" }} ／
+            未請求：{{ unbilled_count }} 件
+            {% if closing_print_qs %}
+            ／ <a href="{% url 'workrecord_print_period' %}?{{ closing_print_qs }}">この期間で印刷</a>
+            {% endif %}
+        </p>
+        {% else %}
+        <p>締め日は未設定です。期間指定印刷は開始日・終了日を手入力できます。</p>
+        {% endif %}
+        <form method="post" style="margin: 0;">
+            {% csrf_token %}
+            <input type="hidden" name="kind" value="moto">
+            <input type="hidden" name="moto_company" value="{{ moto_company }}">
+            <label>
+                締め日（1〜31）：
+                <input type="number" name="closing_day" min="1" max="31" value="{{ closing_day|default:'' }}">
+            </label>
+            <button type="submit" name="save_closing_day" value="1">締め日を保存</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% for section in sections %}
+    <h3>{{ section.title }}</h3>
+    {% if section.groups %}
+        {% for group in section.groups %}
+        <h4>{{ group.name }}（小計：{{ group.total }} 円）</h4>
+        {% if section.kind == "職人" or section.kind == "作業員" %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <tr>
+                <th>ID</th>
+                <th>伝票番号</th>
+                <th>日付</th>
+                <th>現場名</th>
+                <th>上位企業</th>
+                <th>作業種類</th>
+                <th>寸法</th>
+                <th>作業量</th>
+                <th>単価</th>
+                <th>合計金額</th>
+                <th>備考</th>
+                <th>状態</th>
+                <th>操作</th>
+            </tr>
+            {% for record in group.records %}
+            <tr>
+                <td>{{ record.id }}</td>
+                <td>{{ record.voucher_no }}</td>
+                <td>{{ record.date }}</td>
+                <td>{{ record|site_with_gc }}</td>
+                <td>{{ record|upper_company }}</td>
+                <td>{{ record.work_type }}</td>
+                <td>{{ record.work_size }}</td>
+                <td>{{ record.work_amount }}</td>
+                <td>{{ record.unit_price }}</td>
+                <td>{% if record.display_total is not None %}{{ record.display_total }}{% else %}{{ record.total_price }}{% endif %}</td>
+                <td>{{ record.remark }}</td>
+                <td>{% if record.is_printed %}印刷済み{% else %}未請求{% endif %}</td>
+                <td>
+                    {% if record.show_voucher_actions %}
+                    <a href="{% url 'workrecord_print' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">印刷</a>
+                    {% if record.is_printed %}
+                    ／ 編集・削除は期間印刷から取消後
+                    {% else %}
+                    |
+                    <a href="{% url 'workrecord_edit' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">編集</a> |
+                    <a href="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}"
+                       onclick="return confirm('この伝票をすべて削除しますか？');">
+                       削除
+                    </a>
+                    {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
+            {% if record.helper_label %}
+            <tr>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>{{ record.helper_label }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td style="color: #b00000;">−{{ record.helper_deduction }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </table>
+        {% else %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <tr>
+                <th>ID</th>
+                <th>伝票番号</th>
+                <th>日付</th>
+                <th>現場名</th>
+                <th>上位企業</th>
+                <th>作業種類</th>
+                <th>寸法</th>
+                <th>作業量</th>
+                <th>備考</th>
+                <th>単価</th>
+                <th>合計金額</th>
+                <th>状態</th>
+                <th>操作</th>
+            </tr>
+            {% for record in group.records %}
+            <tr>
+                <td>{{ record.id }}</td>
+                <td>{{ record.voucher_no }}</td>
+                <td>{{ record.date }}</td>
+                <td>{{ record|site_with_gc }}</td>
+                <td>{{ record|upper_company }}</td>
+                <td>{{ record.work_type }}</td>
+                <td>{{ record.work_size }}</td>
+                <td>{{ record.work_amount }}</td>
+                <td>{{ record.remark }}</td>
+                <td>{{ record.unit_price }}</td>
+                <td>{{ record.total_price }}</td>
+                <td>{% if record.is_printed %}印刷済み{% else %}未請求{% endif %}</td>
+                <td>
+                    {% if record.show_voucher_actions %}
+                    <a href="{% url 'workrecord_print' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">印刷</a>
+                    {% if record.is_printed %}
+                    ／ 編集・削除は期間印刷から取消後
+                    {% else %}
+                    |
+                    <a href="{% url 'workrecord_edit' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">編集</a> |
+                    <a href="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}"
+                       onclick="return confirm('この伝票をすべて削除しますか？');">
+                       削除
+                    </a>
+                    {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+        {% endfor %}
+        <p><strong>{{ section.kind }} 合計：{{ section.total }} 円</strong></p>
+    {% else %}
+        <p>記録がありません。</p>
+    {% endif %}
+    <hr>
+    {% endfor %}
+
+    <h3>総合計：{{ total_sum }} 円</h3>
+    {% else %}
+    <p>請求先・作業員・応援のいずれかを選んで「表示する」を押してください。</p>
+    {% endif %}
+
+    {% include "workapp/_searchable_filters.html" %}
+</body>
+</html>

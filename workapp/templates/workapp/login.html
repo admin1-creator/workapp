@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ログイン — 請求支払い入力</title>
+    <style>
+        html { background: #e8e8e8; }
+        body {
+            font-family: "Yu Gothic", "Meiryo", sans-serif;
+            color: #111;
+            max-width: 420px;
+            margin: 48px auto;
+            padding: 32px;
+            background: #fff;
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.12);
+        }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .sub { color: #555; margin: 0 0 24px; }
+        label { display: block; margin: 12px 0 4px; }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+            font-size: 16px;
+        }
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 10px 16px;
+            font-size: 16px;
+        }
+        .error { color: #b00000; margin: 12px 0; }
+    </style>
+</head>
+<body>
+    <h1>請求支払い入力</h1>
+    <p class="sub">社内用ログイン</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <label for="id_username">ユーザー名</label>
+        {{ form.username }}
+        {% if form.username.errors %}<div class="error">{{ form.username.errors }}</div>{% endif %}
+        <label for="id_password">パスワード</label>
+        {{ form.password }}
+        {% if form.password.errors %}<div class="error">{{ form.password.errors }}</div>{% endif %}
+        <button type="submit">ログイン</button>
+    </form>
+    <p class="sub" style="margin-top: 24px; font-size: 13px;">
+        初めて使う場合は、管理者でユーザーを作成してください（管理画面 /admin/）。
+    </p>
+</body>
+</html>

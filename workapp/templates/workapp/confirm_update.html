@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>保存内容の確認</title>
+    <style>
+        body { font-family: "Yu Gothic", "Meiryo", sans-serif; margin: 24px; }
+        h2, h3 { margin-top: 0; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 24px; }
+        th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+        th { background: #f3f3f3; width: 18%; }
+        .changed { background: #fff3cd; }
+        .actions { margin: 24px 0; }
+        .actions button { margin-right: 8px; padding: 8px 16px; }
+        .note { color: #555; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+
+    <h2>同じ伝票の記録が見つかりました</h2>
+    <p class="note">
+        伝票番号・区分・日付・現場名・作業種類が一致する既存データがあります。
+        上書きするか、新しい行として追加するか、作業入力画面に戻るかを選んでください。
+    </p>
+
+    {% for item in comparisons %}
+    <h3>比較 {{ forloop.counter }}（既存 ID：{{ item.existing_id }}）</h3>
+    <table>
+        <tr>
+            <th>項目</th>
+            <th>既存データ</th>
+            <th>新しい入力</th>
+        </tr>
+        {% for row in item.rows %}
+        <tr class="{% if row.changed %}changed{% endif %}">
+            <th>{{ row.label }}</th>
+            <td>{% if row.old != None %}{{ row.old }}{% endif %}</td>
+            <td>{% if row.new != None %}{{ row.new }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endfor %}
+
+    {% if create_previews %}
+    <h3>一致しない行（このまま新規追加されます）</h3>
+    {% for preview in create_previews %}
+    <table>
+        {% for row in preview %}
+        <tr>
+            <th>{{ row.label }}</th>
+            <td>{{ row.value }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endfor %}
+    {% endif %}
+
+    <form method="post" class="actions">
+        {% csrf_token %}
+        <button type="submit" name="action" value="overwrite">上書きする</button>
+        <button type="submit" name="action" value="create">新規追加する</button>
+        <button type="submit" name="action" value="back">編集に戻る</button>
+    </form>
+
+</body>
+</html>

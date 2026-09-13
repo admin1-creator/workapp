@@ -1,0 +1,90 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'admin/css/vendor/select2/select2.min.css' %}">
+<style>
+    .select2-container { width: 100% !important; }
+    .select2-container .select2-selection--single {
+        height: 36px;
+        border: 1px solid #888;
+        padding: 4px 8px;
+    }
+    .select2-container .select2-selection--single .select2-selection__rendered {
+        line-height: 26px;
+        padding-left: 0;
+    }
+    .select2-container .select2-selection--single .select2-selection__arrow {
+        height: 34px;
+    }
+    #id_general_contractor_display,
+    #id_billing_contractor_display {
+        background: #eee;
+    }
+</style>
+<script src="{% static 'admin/js/vendor/jquery/jquery.min.js' %}"></script>
+<script src="{% static 'admin/js/vendor/select2/select2.full.min.js' %}"></script>
+<script src="{% static 'admin/js/vendor/select2/i18n/ja.js' %}"></script>
+<script>
+(function($) {
+    function selectedSiteOption() {
+        const site = document.getElementById("id_site");
+        if (!site) return null;
+        return site.options[site.selectedIndex] || null;
+    }
+    function siteContractorName() {
+        const opt = selectedSiteOption();
+        return opt ? (opt.getAttribute("data-contractor-name") || "") : "";
+    }
+    function siteContractorId() {
+        const opt = selectedSiteOption();
+        return opt ? (opt.getAttribute("data-contractor") || "") : "";
+    }
+    function primaryName() {
+        const sel = document.getElementById("id_primary_company");
+        if (!sel || !sel.value) return "";
+        const opt = sel.options[sel.selectedIndex];
+        return opt ? (opt.text || "").replace(/^なし.*/, "") : "";
+    }
+    function syncContractors() {
+        const gcName = siteContractorName();
+        const primaryVal = $("#id_primary_company").val();
+        let billing = gcName;
+        if (primaryVal) {
+            const sel = document.getElementById("id_primary_company");
+            const opt = sel.options[sel.selectedIndex];
+            billing = opt ? opt.text : gcName;
+        }
+        $("#id_general_contractor_display").val(gcName);
+        $("#id_billing_contractor_display").val(billing);
+    }
+    function billingContractorId() {
+        return $("#id_primary_company").val() || siteContractorId();
+    }
+    function init() {
+        const common = {
+            width: "100%",
+            allowClear: true,
+            language: "ja",
+            placeholder: "検索して選ぶ"
+        };
+        $("#id_site").select2(common);
+        $("#id_primary_company").select2(common);
+        $("#id_worker, #id_temoto1, #id_temoto2, #id_temoto3").select2(common);
+        $("#id_site").on("change", syncContractors);
+        $("#id_primary_company").on("change", syncContractors);
+        syncContractors();
+        window.billingContractorId = billingContractorId;
+        $(document).on("keydown", "form", function(e) {
+            if (e.key !== "Enter") return;
+            const t = e.target;
+            if (!t) return;
+            if (t.classList.contains("select2-search__field") || $(t).closest(".select2-container").length) {
+                return;
+            }
+            if (t.tagName === "TEXTAREA" || t.classList.contains("save") || t.type === "submit") {
+                return;
+            }
+            e.preventDefault();
+        });
+    }
+    $(init);
+})(jQuery);
+</script>

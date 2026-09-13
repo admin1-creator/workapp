@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ document_title|default:"期間指定印刷" }}</title>
+    <style>
+        {% include "workapp/_print_styles.html" %}
+    </style>
+</head>
+<body>
+
+    <div class="no-print">
+        <form method="get">
+            <p>
+                <label>開始日：<input type="date" name="from_date" value="{{ from_date }}" required></label>
+                <label>終了日：<input type="date" name="to_date" value="{{ to_date }}" required></label>
+            </p>
+            {% include "workapp/_party_filter_fields.html" %}
+            <button type="submit">表示する</button>
+        </form>
+        {% if has_period %}
+        <button type="button" onclick="window.print()">{% if printed_document %}再印刷{% else %}印刷する{% endif %}</button>
+        {% if printed_document %}
+        <form method="post" style="display: inline;">
+            {% csrf_token %}
+            <input type="hidden" name="from_date" value="{{ from_date }}">
+            <input type="hidden" name="to_date" value="{{ to_date }}">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            <input type="hidden" name="moto_company" value="{{ moto_company }}">
+            <input type="hidden" name="worker_id" value="{{ worker_id }}">
+            <input type="hidden" name="temoto_id" value="{{ temoto_id }}">
+            <input type="hidden" name="company_id" value="{{ company_id }}">
+            <input type="hidden" name="document_id" value="{{ printed_document.id }}">
+            <button type="submit" name="action" value="cancel_printed">印刷を取り消す</button>
+        </form>
+        {% elif records %}
+        <form method="post" style="display: inline;">
+            {% csrf_token %}
+            <input type="hidden" name="from_date" value="{{ from_date }}">
+            <input type="hidden" name="to_date" value="{{ to_date }}">
+            <input type="hidden" name="kind" value="{{ kind }}">
+            <input type="hidden" name="moto_company" value="{{ moto_company }}">
+            <input type="hidden" name="worker_id" value="{{ worker_id }}">
+            <input type="hidden" name="temoto_id" value="{{ temoto_id }}">
+            <input type="hidden" name="company_id" value="{{ company_id }}">
+            <button type="submit" name="action" value="mark_printed">印刷済みにする</button>
+        </form>
+        {% endif %}
+        {% endif %}
+        <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">一覧に戻る</a>
+    </div>
+
+    <p class="app-name">請求支払い入力</p>
+    <h1>{{ document_title }}{% if printed_document %}<span class="stamp">印刷済み</span>{% endif %}</h1>
+{% load display_labels %}
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if has_period %}
+    <p class="meta">
+        対象期間：{{ from_date }} 〜 {{ to_date }}
+        {% if selected_name %} ／ {{ selected_name }}{% endif %}
+        ／ {{ records|length }} 件
+        {% if printed_document %}
+        ／ 印刷日時：{{ printed_document.printed_at }} ／ 金額は印刷時点で固定
+        {% endif %}
+    </p>
+
+    {% if is_moto %}
+    <table class="data">
+        <tr>
+            <th>伝票番号</th>
+            <th>日付</th>
+            <th>現場名</th>
+            <th>上位企業</th>
+            <th>作業種類</th>
+            <th>寸法</th>
+            <th>作業量</th>
+            <th>単価</th>
+            <th>合計金額</th>
+        </tr>
+        {% for record in records %}
+        <tr>
+            <td>{{ record.voucher_no }}</td>
+            <td>{{ record.date }}</td>
+            <td>{{ record|site_with_gc }}</td>
+            <td>{{ record|upper_company }}</td>
+            <td>{{ record.work_type }}</td>
+            <td>{{ record.work_size }}</td>
+            <td>{{ record.work_amount }}</td>
+            <td>{% if record.unit_price is not None %}{{ record.unit_price }}{% endif %}</td>
+            <td>{% if record.total_price is not None %}{{ record.total_price }}{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="9">この期間の記録はありません。</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% elif is_worker or is_shokunin or is_temoto or is_ouen %}
+    <table class="data">
+        <tr>
+            <th>伝票番号</th>
+            <th>日付</th>
+            <th>現場名</th>
+            <th>上位企業</th>
+            <th>作業種類</th>
+            <th>寸法</th>
+            <th>作業量</th>
+            <th>単価</th>
+            <th>合計金額</th>
+        </tr>
+        {% for record in records %}
+        <tr>
+            <td>{{ record.voucher_no }}</td>
+            <td>{{ record.date }}</td>
+            <td>{{ record|site_with_gc }}</td>
+            <td>{{ record|upper_company }}</td>
+            <td>{{ record.work_type }}</td>
+            <td>{{ record.work_size }}</td>
+            <td>{{ record.work_amount }}</td>
+            <td>{% if record.unit_price is not None %}{{ record.unit_price }}{% endif %}</td>
+            <td>{% if record.pay_role == "shokunin" and record.display_total is not None %}{{ record.display_total }}{% elif is_shokunin and record.display_total is not None %}{{ record.display_total }}{% elif record.total_price is not None %}{{ record.total_price }}{% endif %}</td>
+        </tr>
+        {% if record.helper_label %}
+        <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>{{ record.helper_label }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="minus">−{{ record.helper_deduction }}</td>
+        </tr>
+        {% endif %}
+        {% empty %}
+        <tr>
+            <td colspan="9">この期間の記録はありません。</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+
+    <p class="amount">期間合計：{{ total_sum }} 円</p>
+    {% else %}
+    <p class="meta">開始日・終了日と、請求先・作業員・応援のいずれかを指定して「表示する」を押してください。</p>
+    {% endif %}
+
+    {% include "workapp/_searchable_filters.html" %}
+</body>
+</html>

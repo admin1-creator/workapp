@@ -1,0 +1,36 @@
+<p>
+    <label>
+        <input type="radio" name="kind" value="moto" {% if kind == "moto" %}checked{% endif %}>
+        請求先
+    </label>
+    <select name="moto_company">
+        <option value="">選択してください</option>
+        {% for contractor in contractors %}
+        <option value="{{ contractor.id }}" {% if moto_company == contractor.id|stringformat:"s" %}selected{% endif %}>{{ contractor.name }}{% if contractor.closing_day %}（{{ contractor.closing_day }}日締め）{% endif %}</option>
+        {% endfor %}
+    </select>
+</p>
+<p>
+    <label>
+        <input type="radio" name="kind" value="worker" {% if kind == "worker" or kind == "shokunin" or kind == "temoto" %}checked{% endif %}>
+        作業員
+    </label>
+    <select name="worker_id">
+        <option value="">選択してください</option>
+        {% for worker in workers %}
+        <option value="{{ worker.id }}" {% if worker_id == worker.id|stringformat:"s" %}selected{% endif %}>{{ worker.name }}</option>
+        {% endfor %}
+    </select>
+</p>
+<p>
+    <label>
+        <input type="radio" name="kind" value="ouen" {% if kind == "ouen" %}checked{% endif %}>
+        応援
+    </label>
+    <select name="company_id">
+        <option value="">選択してください</option>
+        {% for company in companies %}
+        <option value="{{ company.id }}" {% if company_id == company.id|stringformat:"s" %}selected{% endif %}>{{ company.name }}</option>
+        {% endfor %}
+    </select>
+</p>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>伝票詳細 {{ base.voucher_no }}</title>
+</head>
+<body>
+{% load display_labels %}
+    <h2>伝票詳細</h2>
+    <p>
+        <a href="{% url 'workrecord_search' %}">検索に戻る</a> |
+        <a href="{% url 'workrecord_edit' base.pk %}">この伝票を編集</a> |
+        <a href="{% url 'workrecord_print' base.pk %}?kind=moto">この伝票を印刷</a> |
+        <a href="{% url 'workrecord_create' %}">新規入力</a> |
+        <a href="{% url 'workrecord_list' %}">相手別一覧</a> |
+        <a href="{% url 'logout' %}">ログアウト</a>
+    </p>
+
+    <table border="1" cellpadding="8" cellspacing="0">
+        <tr><th>伝票番号</th><td>{{ base.voucher_no|default:"—" }}</td></tr>
+        <tr><th>日付</th><td>{{ base.date }}</td></tr>
+        <tr><th>現場名</th><td>{{ base|site_with_gc }}</td></tr>
+        <tr><th>上位企業</th><td>{{ base|upper_company|default:"—" }}</td></tr>
+        <tr><th>請求先</th><td>{{ base.billing_contractor|default:base.general_contractor|default:"—" }}</td></tr>
+    </table>
+
+    <h3>明細</h3>
+    <table border="1" cellpadding="8" cellspacing="0">
+        <tr>
+            <th>区分</th>
+            <th>作業種類</th>
+            <th>寸法</th>
+            <th>作業量</th>
+            <th>備考</th>
+            <th>単価</th>
+            <th>合計金額</th>
+            <th>手元</th>
+        </tr>
+        {% for record in records %}
+        <tr>
+            <td>{{ record.worker }}</td>
+            <td>{{ record.work_type }}</td>
+            <td>{{ record.work_size }}</td>
+            <td>{{ record.work_amount }}</td>
+            <td>{{ record.remark }}</td>
+            <td>{{ record.unit_price }}</td>
+            <td>{{ record.total_price }}</td>
+            <td>
+                {{ record.temoto1 }}
+                {% if record.temoto2 %} / {{ record.temoto2 }}{% endif %}
+                {% if record.temoto3 %} / {{ record.temoto3 }}{% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8">明細がありません。</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
