@@ -1,0 +1,97 @@
+<script>
+(function () {
+    function parseAmount(value) {
+        var text = String(value || "").replace(/[,，\s円¥￥]/g, "");
+        if (!text) return 0;
+        var n = Number(text);
+        return isFinite(n) ? n : 0;
+    }
+
+    function formatAmount(n) {
+        return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    function updateKagamiSum() {
+        var table = document.querySelector(".kagami-table");
+        if (!table) return;
+        var sum = 0;
+        table.querySelectorAll("input[data-kagami-amount]").forEach(function (input) {
+            sum += parseAmount(input.value);
+        });
+        var out = table.querySelector(".kagami-sum-value");
+        if (out) out.textContent = formatAmount(sum);
+        var tax = Math.floor(sum * 10 / 100);
+        var block = document.querySelector(".kagami .tax-block");
+        if (block) {
+            var included = block.querySelector(".tax-included");
+            var all = block.querySelector(".tax-all");
+            if (included) {
+                included.innerHTML = '<span class="tax-label">税込合計金額</span>　¥' + formatAmount(sum + tax);
+            }
+            if (all) {
+                all.textContent = "すべての合計 " + formatAmount(sum) + "（" + formatAmount(tax) + "）";
+            }
+        }
+    }
+
+    function amountOf(row) {
+        var cell = row.querySelector(".col-amount");
+        if (!cell) return 0;
+        if (cell.getAttribute("data-amount") !== null) {
+            return parseAmount(cell.getAttribute("data-amount"));
+        }
+        return parseAmount(cell.textContent);
+    }
+
+    function paginatePaySheet(table) {
+        table.querySelectorAll("tr.page-total, tr.page-header").forEach(function (row) {
+            row.remove();
+        });
+        var header = table.querySelector("tr");
+        if (!header) return;
+        var rows = Array.prototype.filter.call(table.querySelectorAll("tr"), function (row) {
+            return row.querySelector("th") === null && !row.classList.contains("empty-row");
+        });
+        if (!rows.length) return;
+        var firstPage = 16;
+        var nextPage = 22;
+        var index = 0;
+        var page = 0;
+        var colCount = header.querySelectorAll("th").length;
+        while (index < rows.length) {
+            var cap = page === 0 ? firstPage : nextPage;
+            var chunk = rows.slice(index, index + cap);
+            index += cap;
+            page += 1;
+            var sum = chunk.reduce(function (total, row) {
+                return total + amountOf(row);
+            }, 0);
+            var totalRow = document.createElement("tr");
+            totalRow.className = "page-total";
+            var label = document.createElement("td");
+            label.colSpan = colCount - 1;
+            label.textContent = "合計";
+            var value = document.createElement("td");
+            value.className = "col-amount";
+            value.textContent = formatAmount(sum);
+            totalRow.appendChild(label);
+            totalRow.appendChild(value);
+            chunk[chunk.length - 1].after(totalRow);
+            if (index < rows.length) {
+                totalRow.classList.add("break-after");
+                var cloned = header.cloneNode(true);
+                cloned.classList.add("page-header");
+                totalRow.after(cloned);
+            }
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll("table.pay-sheet").forEach(paginatePaySheet);
+        updateKagamiSum();
+        document.querySelectorAll("input[data-kagami-amount]").forEach(function (input) {
+            input.addEventListener("input", updateKagamiSum);
+        });
+    });
+})();
+</script>

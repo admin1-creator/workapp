@@ -36,6 +36,13 @@ def closing_period_for(today, closing_day):
     return start, _month_day(next_year, next_month, closing_day)
 
 
+def previous_period_for(current_period, closing_day):
+    if not current_period:
+        return None
+    start, _end = current_period
+    return closing_period_for(start - timedelta(days=1), closing_day)
+
+
 # -----------------------------
 #  ゼネコン
 # -----------------------------
@@ -58,6 +65,9 @@ class GeneralContractor(models.Model):
 
     def current_closing_period(self, today=None):
         return closing_period_for(today, self.closing_day)
+
+    def previous_closing_period(self, today=None):
+        return previous_period_for(self.current_closing_period(today), self.closing_day)
 
 
 # -----------------------------
@@ -312,6 +322,21 @@ class PrintedDocument(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} {self.party_name} {self.period_start}〜{self.period_end}"
+
+
+class KagamiSheet(models.Model):
+    scope_key = models.CharField("対象キー", max_length=255, unique=True)
+    lines = models.JSONField("鑑の行", default=list, blank=True)
+    total_amount = models.IntegerField("鑑の合計", default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "鑑"
+        verbose_name_plural = "鑑"
+
+    def __str__(self):
+        return self.scope_key
 
 
 class PrintedDocumentItem(models.Model):

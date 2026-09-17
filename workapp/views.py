@@ -19,6 +19,7 @@ from .models import (
     Site,
     PrintedDocument,
     PrintedDocumentItem,
+    KagamiSheet,
 )
 from .forms import WorkRecordForm
 
@@ -530,6 +531,47 @@ def _kind_from_worker(worker):
     return None
 
 
+PARTY_KIND_LABELS = {
+    "moto": "元請",
+    "shokunin": "職人",
+    "temoto": "手元",
+    "worker": "作業員",
+    "ouen": "応援",
+}
+
+
+def _party_kind_of_record(record):
+    kind = _kind_from_worker(getattr(record, "worker", None))
+    if kind:
+        return kind
+    if (getattr(record, "company", "") or "").strip():
+        return "ouen"
+    return None
+
+
+def _party_kind_of_fields(fields):
+    kind = _kind_from_worker((fields or {}).get("worker"))
+    if kind:
+        return kind
+    if ((fields or {}).get("company") or "").strip():
+        return "ouen"
+    return None
+
+
+def _locked_party_kinds(records):
+    printed_map = _printed_item_map([r.pk for r in records if getattr(r, "pk", None)])
+    kinds = []
+    seen = set()
+    for rec in records:
+        if rec.pk not in printed_map:
+            continue
+        kind = _party_kind_of_record(rec)
+        if kind and kind not in seen:
+            seen.add(kind)
+            kinds.append(kind)
+    return kinds
+
+
 def _existing_voucher_groups(voucher_no):
     voucher_no = (voucher_no or "").strip()
     titles = [("moto", "元請"), ("shokunin", "職人"), ("temoto", "手元"), ("ouen", "応援")]
@@ -578,8 +620,18 @@ def _detail_from_fields(fields):
 
 def _apply_voucher_save(action, existing_ids, new_fields):
     if action == "overwrite":
-        WorkRecord.objects.filter(pk__in=existing_ids).delete()
+        printed_ids = set(_printed_item_map(existing_ids).keys())
+        locked_kinds = set()
+        if printed_ids:
+            for rec in WorkRecord.objects.filter(pk__in=printed_ids):
+                kind = _party_kind_of_record(rec)
+                if kind:
+                    locked_kinds.add(kind)
+        WorkRecord.objects.filter(pk__in=existing_ids).exclude(pk__in=printed_ids).delete()
         for fields in new_fields:
+            kind = _party_kind_of_fields(fields)
+            if kind and kind in locked_kinds:
+                continue
             _save_work_record(fields)
         return
     if action in ("save", "create"):
@@ -940,17 +992,20 @@ def _build_review_sections(data):
         _section_state(
             "shokunin", "職人",
             _record_common_fields(data, role="shokunin", allocation=shokunin_alloc),
-            [_row_save_fields(row) for row in shokunin_rows],
-            shokunin_rows, shokunin_totals,
-            "" if worker and has_lines else ("作業内容がありません。" if not has_lines else "職人が未選択です。"),
+            [_row_save_fields(row) for row in shokunin_rows] if worker else [],
+            shokunin_rows if worker else [],
+            shokunin_totals,
+            "" if not worker else ("" if has_lines else "作業内容がありません。"),
         ),
         _section_state(
             "temoto", "手元",
             _record_common_fields(data, role="temoto", allocation=temoto_alloc),
-            temoto_lines, temoto_display, temoto_totals,
-            "" if worker and temoto_selected and has_lines else (
+            temoto_lines if worker and temoto_selected else [],
+            temoto_display if worker and temoto_selected else [],
+            temoto_totals,
+            "" if not temoto_selected else (
                 "作業内容がありません。" if not has_lines else (
-                    "職人が未選択です。" if not worker else "手元が未選択です。"
+                    "職人が未選択です。" if not worker else ""
                 )
             ),
         ),
@@ -1278,19 +1333,24 @@ def workrecord_create(request):
             work_lines = _work_lines_from_session(data)
             unit_role = data.get("unit_role") or ""
         else:
+            request.session.pop("basic_record", None)
+            request.session.pop("review_saved", None)
             request.session.pop("editing_voucher", None)
+            request.session.pop("locked_party_labels", None)
             form = WorkRecordForm()
             work_lines = _work_lines_from_session({})
             unit_role = ""
 
     from .models import WorkSize
 
+    locked_party_labels = request.session.get("locked_party_labels") or []
     return render(request, 'workapp/workrecord_basic_form.html', {
         'form': form,
         'work_sizes': WorkSize.objects.all(),
         'work_lines': work_lines,
         'unit_role': unit_role,
         'editing_voucher': bool(request.session.get("editing_voucher")),
+        'locked_party_labels': locked_party_labels,
         'list_qs': urlencode(_list_filter_params(request) or (request.session.get("list_filter") or {})),
     })
 
@@ -1459,6 +1519,132 @@ DOCUMENT_TITLES = {
     "temoto": "支払書",
     "ouen": "支払書（応援）",
 }
+
+
+def _print_party_context(kind, party_name=""):
+    name = (party_name or "").strip()
+    company_kinds = ("moto", "ouen")
+    return {
+        "party_name": name,
+        "party_honorific": "御中" if kind in company_kinds else "様",
+        "party_role_label": "請求先" if kind == "moto" else "支払先",
+    }
+
+
+def _wants_kagami(src, kind):
+    if kind == "moto":
+        return False
+    return str((src or {}).get("kagami") or "").strip() in ("1", "on", "true")
+
+
+def _pay_tax_context(kind, total):
+    base = int(total or 0)
+    tax = base * 10 // 100
+    return {
+        "show_tax_block": True,
+        "pay_total_num": base,
+        "pay_total": f"{base:,}",
+        "pay_tax": f"{tax:,}",
+        "pay_tax_included": f"{base + tax:,}",
+    }
+
+
+KAGAMI_LINE_COUNT = 6
+
+
+def _parse_kagami_amount(value):
+    text = (
+        str(value or "")
+        .replace(",", "")
+        .replace("，", "")
+        .replace(" ", "")
+        .replace("円", "")
+        .replace("¥", "")
+        .replace("￥", "")
+        .strip()
+    )
+    if text == "":
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _kagami_lines_from_src(src):
+    lines = []
+    total = 0
+    for index in range(1, KAGAMI_LINE_COUNT + 1):
+        item = str((src or {}).get(f"kagami_item_{index}") or "").strip()
+        if index == 1:
+            item = "売上"
+        amount = _parse_kagami_amount((src or {}).get(f"kagami_amount_{index}"))
+        lines.append({"item": item, "amount": amount})
+        total += amount or 0
+    return lines, total
+
+
+def _default_kagami_lines(pay_total):
+    amount = int(pay_total or 0)
+    lines = [{"item": "売上", "amount": amount}]
+    lines.extend({"item": "", "amount": None} for _ in range(KAGAMI_LINE_COUNT - 1))
+    return lines, amount
+
+
+def _kagami_period_scope(kind, worker_id, company_id, from_date, to_date):
+    return f"period:{kind}:w={worker_id or ''}:c={company_id or ''}:{from_date}:{to_date}"
+
+
+def _kagami_voucher_scope(kind, record_pk, worker_id):
+    return f"voucher:{kind}:{record_pk}:w={worker_id or ''}"
+
+
+def _kagami_context(scope_key, pay_total):
+    sheet = KagamiSheet.objects.filter(scope_key=scope_key).first()
+    if sheet:
+        lines = list(sheet.lines or [])
+        total = int(sheet.total_amount or 0)
+        while len(lines) < KAGAMI_LINE_COUNT:
+            lines.append({"item": "", "amount": None})
+        lines = lines[:KAGAMI_LINE_COUNT]
+        if lines:
+            lines[0]["item"] = "売上"
+    else:
+        lines, total = _default_kagami_lines(pay_total)
+    tax = _pay_tax_context("worker", total)
+    return {
+        "kagami_lines": lines,
+        "kagami_total": total,
+        "kagami_pay_total": tax["pay_total"],
+        "kagami_pay_tax": tax["pay_tax"],
+        "kagami_pay_tax_included": tax["pay_tax_included"],
+    }
+
+
+def _save_kagami_sheet(scope_key, src):
+    lines, total = _kagami_lines_from_src(src)
+    KagamiSheet.objects.update_or_create(
+        scope_key=scope_key,
+        defaults={"lines": lines, "total_amount": total},
+    )
+
+
+def _single_print_party_name(kind, record, worker_id=""):
+    if kind == "moto":
+        return (
+            (getattr(record, "billing_contractor", "") or "")
+            or (getattr(record, "general_contractor", "") or "")
+        ).strip()
+    if kind == "ouen":
+        return (getattr(record, "company", "") or "").strip()
+    if worker_id:
+        person = Worker.objects.filter(pk=worker_id).first()
+        if person:
+            return person.name
+    return (
+        (getattr(record, "helpers", "") or "")
+        or (getattr(record, "worker", "") or "")
+    ).strip()
 
 
 def _party_choice_querysets():
@@ -1752,7 +1938,7 @@ def _mark_period_printed(kind, party_name, records, start, end, contractor=None,
     return doc, skipped
 
 
-def _period_print_redirect(kind, moto_company, worker_id, temoto_id, company_id, from_date, to_date):
+def _period_print_redirect(kind, moto_company, worker_id, temoto_id, company_id, from_date, to_date, extra=None):
     params = {
         "kind": kind,
         "moto_company": moto_company,
@@ -1762,6 +1948,8 @@ def _period_print_redirect(kind, moto_company, worker_id, temoto_id, company_id,
         "from_date": from_date,
         "to_date": to_date,
     }
+    if extra:
+        params.update(extra)
     params = {key: val for key, val in params.items() if val}
     return redirect(f"{reverse('workrecord_print_period')}?{urlencode(params)}")
 
@@ -1868,11 +2056,14 @@ def workrecord_list(request):
 
     closing_day = None
     closing_period = None
+    previous_period = None
     unbilled_count = None
     closing_print_qs = ""
+    previous_print_qs = ""
     if selected_contractor:
         closing_day = selected_contractor.closing_day
         closing_period = selected_contractor.current_closing_period()
+        previous_period = selected_contractor.previous_closing_period()
         if closing_period:
             start, end = closing_period
             unbilled_count = sum(
@@ -1884,6 +2075,14 @@ def workrecord_list(request):
                 "moto_company": moto_company,
                 "from_date": start.isoformat(),
                 "to_date": end.isoformat(),
+            })
+        if previous_period:
+            prev_start, prev_end = previous_period
+            previous_print_qs = urlencode({
+                "kind": "moto",
+                "moto_company": moto_company,
+                "from_date": prev_start.isoformat(),
+                "to_date": prev_end.isoformat(),
             })
 
     period_params = _list_filter_params(extra={
@@ -1914,8 +2113,10 @@ def workrecord_list(request):
         "period_print_qs": urlencode(period_params),
         "closing_day": closing_day,
         "closing_period": closing_period,
+        "previous_period": previous_period,
         "unbilled_count": unbilled_count,
         "closing_print_qs": closing_print_qs,
+        "previous_print_qs": previous_print_qs,
     })
 
 
@@ -2001,11 +2202,7 @@ def workrecord_edit(request, pk):
     record = get_object_or_404(WorkRecord, pk=pk)
     list_qs = urlencode(_list_filter_params(request) or (request.session.get("list_filter") or {}))
     voucher_records = list(_voucher_qs(record).order_by("id")) or [record]
-    locked_item = None
-    for rec in voucher_records:
-        locked_item = _active_print_item(rec)
-        if locked_item:
-            break
+    locked_item = _active_print_item(record)
     if locked_item:
         return render(request, "workapp/workrecord_edit.html", {
             "form": None,
@@ -2016,9 +2213,13 @@ def workrecord_edit(request, pk):
             "party_label": "この伝票",
         })
 
+    locked_kinds = _locked_party_kinds(voucher_records)
     request.session["basic_record"] = _serialize_session_basic(_basic_record_from_voucher(record))
     request.session["editing_voucher"] = True
     request.session["review_saved"] = False
+    request.session["locked_party_labels"] = [
+        PARTY_KIND_LABELS.get(kind, kind) for kind in locked_kinds
+    ]
     request.session.modified = True
     url = reverse("workrecord_create") + "?restore=1"
     if list_qs:
@@ -2092,10 +2293,23 @@ def _voucher_lines_for_print(record, kind):
 
 def workrecord_print(request, pk):
     record = get_object_or_404(WorkRecord, pk=pk)
-    worker_type = request.GET.get("kind", "").strip() or _record_unit_type(record)
-    worker_id = request.GET.get("worker_id", "").strip()
-    temoto_id = request.GET.get("temoto_id", "").strip()
+    src = request.POST if request.method == "POST" else request.GET
+    worker_type = src.get("kind", "").strip() or _record_unit_type(record)
+    worker_id = src.get("worker_id", "").strip()
+    temoto_id = src.get("temoto_id", "").strip()
     worker_type, worker_id, temoto_id = _normalize_party_kind(worker_type, worker_id, temoto_id)
+    if request.method == "POST" and request.POST.get("action") == "save_kagami" and _wants_kagami(src, worker_type):
+        _save_kagami_sheet(_kagami_voucher_scope(worker_type, record.pk, worker_id), request.POST)
+        params = {
+            "kind": worker_type,
+            "worker_id": worker_id,
+            "temoto_id": temoto_id,
+            "moto_company": src.get("moto_company", "").strip(),
+            "company_id": src.get("company_id", "").strip(),
+            "kagami": "1",
+        }
+        params = {key: val for key, val in params.items() if val}
+        return redirect(f"{reverse('workrecord_print', args=[record.pk])}?{urlencode(params)}")
     document_title = DOCUMENT_TITLES.get(worker_type, "作業記録")
     print_records = _voucher_lines_for_print(record, worker_type)
     if worker_type == "worker":
@@ -2122,6 +2336,9 @@ def workrecord_print(request, pk):
     elif worker_type == "temoto":
         print_records = _collapse_temoto_rows_by_voucher(print_records)
     print_total = sum(r.total_price or 0 for r in print_records)
+    party_name = _single_print_party_name(worker_type, record, worker_id)
+    show_kagami = _wants_kagami(src, worker_type)
+    kagami_scope = _kagami_voucher_scope(worker_type, record.pk, worker_id)
     return render(request, 'workapp/workrecord_print.html', {
         'record': record,
         'print_records': print_records,
@@ -2134,6 +2351,18 @@ def workrecord_print(request, pk):
         'is_ouen': worker_type == "ouen",
         'document_title': document_title,
         'list_qs': urlencode(_list_filter_params(request) or (request.session.get("list_filter") or {})),
+        'show_kagami': show_kagami,
+        'kagami_save_url': reverse("workrecord_print", args=[record.pk]),
+        'kagami_hidden': {
+            "kind": worker_type,
+            "worker_id": worker_id,
+            "temoto_id": temoto_id,
+            "moto_company": src.get("moto_company", "").strip(),
+            "company_id": src.get("company_id", "").strip(),
+        },
+        **_kagami_context(kagami_scope, print_total),
+        **_print_party_context(worker_type, party_name),
+        **_pay_tax_context(worker_type, print_total),
     })
 
 
@@ -2227,6 +2456,15 @@ def workrecord_print_period(request):
 
     if request.method == "POST" and has_period:
         action = request.POST.get("action")
+        if action == "save_kagami":
+            _save_kagami_sheet(
+                _kagami_period_scope(kind, worker_id, company_id, from_date_str, to_date_str),
+                request.POST,
+            )
+            return _period_print_redirect(
+                kind, moto_company, worker_id, temoto_id, company_id,
+                from_date_str, to_date_str, extra={"kagami": "1"},
+            )
         if action == "cancel_printed":
             doc = PrintedDocument.objects.filter(
                 pk=request.POST.get("document_id"),
@@ -2283,6 +2521,11 @@ def workrecord_print_period(request):
     is_temoto = kind == "temoto"
     is_ouen = kind == "ouen"
     document_title = DOCUMENT_TITLES.get(kind, "期間指定印刷")
+    period_party = ""
+    if printed_document:
+        period_party = printed_document.party_name
+    else:
+        period_party = selected_name
 
     return render(request, "workapp/workrecord_print_period.html", {
         "from_date": from_date_str,
@@ -2317,6 +2560,23 @@ def workrecord_print_period(request):
             "temoto_id": temoto_id,
             "company_id": company_id,
         })),
+        **_print_party_context(kind, period_party),
+        "show_kagami": _wants_kagami(src, kind),
+        "kagami_save_url": reverse("workrecord_print_period"),
+        "kagami_hidden": {
+            "from_date": from_date_str,
+            "to_date": to_date_str,
+            "kind": kind,
+            "moto_company": moto_company,
+            "worker_id": worker_id,
+            "temoto_id": temoto_id,
+            "company_id": company_id,
+        },
+        **_kagami_context(
+            _kagami_period_scope(kind, worker_id, company_id, from_date_str, to_date_str),
+            total_sum,
+        ),
+        **_pay_tax_context(kind, total_sum),
     })
 
 

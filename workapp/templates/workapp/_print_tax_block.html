@@ -1,0 +1,6 @@
+    {% if show_tax_block %}
+    <div class="tax-block">
+        <p class="tax-included"><span class="tax-label">税込合計金額</span>　¥{{ pay_tax_included }}</p>
+        <p class="tax-all">すべての合計 {{ pay_total }}（{{ pay_tax }}）</p>
+    </div>
+    {% endif %}

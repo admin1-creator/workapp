@@ -34,6 +34,9 @@
             {% if closing_print_qs %}
             ／ <a href="{% url 'workrecord_print_period' %}?{{ closing_print_qs }}">この期間で印刷</a>
             {% endif %}
+            {% if previous_print_qs %}
+            ／ <a href="{% url 'workrecord_print_period' %}?{{ previous_print_qs }}">前期（{{ previous_period.0|date:"Y-m-d" }} 〜 {{ previous_period.1|date:"Y-m-d" }}）</a>
+            {% endif %}
         </p>
         {% else %}
         <p>締め日は未設定です。期間指定印刷は開始日・終了日を手入力できます。</p>

@@ -8,18 +8,38 @@
     </style>
 </head>
 <body>
+{% load display_labels %}
 
     <div class="no-print">
         <button type="button" onclick="window.print()">印刷する</button>
         <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">一覧に戻る</a>
+        {% if not is_moto %}
+        <form method="get" style="display: inline;">
+            {% for key, value in request.GET.items %}
+            {% if key != "kagami" %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endif %}
+            {% endfor %}
+            <label>
+                <input type="checkbox" name="kagami" value="1"{% if show_kagami %} checked{% endif %} onchange="this.form.submit()">
+                鑑をつける（支払合計以外は手記入）
+            </label>
+        </form>
+        {% endif %}
     </div>
+
+    {% if show_kagami %}
+    {% include "workapp/_print_kagami.html" %}
+    {% endif %}
 
     <p class="app-name">請求支払い入力</p>
     <h1>{{ document_title }}</h1>
-{% load display_labels %}
+    {% include "workapp/_print_parties.html" %}
+    {% include "workapp/_print_tax_block.html" %}
 
     {% if is_moto %}
-    <table class="data">
+    <table class="data pay-sheet">
+        {% include "workapp/_print_table_cols.html" %}
         <tr>
             <th>伝票番号</th>
             <th>日付</th>
@@ -34,21 +54,22 @@
         {% for record in print_records %}
         <tr>
             <td>{{ record.voucher_no }}</td>
-            <td>{{ record.date }}</td>
+            <td class="date-cell">{{ record.date|short_date }}</td>
             <td>{{ record|site_with_gc }}</td>
             <td>{{ record|upper_company|default:"—" }}</td>
             <td>{{ record.work_type }}</td>
             <td>{{ record.work_size|default:"—" }}</td>
             <td>{{ record.work_amount }}</td>
             <td>{% if record.unit_price is not None %}{{ record.unit_price }}{% else %}—{% endif %}</td>
-            <td>{% if record.total_price is not None %}{{ record.total_price }}{% else %}—{% endif %}</td>
+            <td class="col-amount" data-amount="{% if record.total_price is not None %}{{ record.total_price }}{% else %}0{% endif %}">{% if record.total_price is not None %}{{ record.total_price }}{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
     </table>
-    <p class="amount">合計金額：{% if print_total is not None %}{{ print_total }} 円{% else %}—{% endif %}</p>
+    <p class="amount screen-only">合計金額：{% if print_total is not None %}{{ print_total }} 円{% else %}—{% endif %}</p>
 
     {% elif is_worker or is_shokunin or is_temoto or is_ouen %}
-    <table class="data">
+    <table class="data pay-sheet">
+        {% include "workapp/_print_table_cols.html" %}
         <tr>
             <th>伝票番号</th>
             <th>日付</th>
@@ -63,32 +84,33 @@
         {% for record in print_records %}
         <tr>
             <td>{{ record.voucher_no }}</td>
-            <td>{{ record.date }}</td>
+            <td class="date-cell">{{ record.date|short_date }}</td>
             <td>{{ record|site_with_gc }}</td>
             <td>{{ record|upper_company|default:"—" }}</td>
             <td>{{ record.work_type }}</td>
             <td>{{ record.work_size|default:"—" }}</td>
             <td>{{ record.work_amount }}</td>
             <td>{% if record.unit_price is not None %}{{ record.unit_price }}{% else %}—{% endif %}</td>
-            <td>{% if record.pay_role == "shokunin" and record.display_total is not None %}{{ record.display_total }}{% elif is_shokunin and record.display_total is not None %}{{ record.display_total }}{% elif record.total_price is not None %}{{ record.total_price }}{% else %}—{% endif %}</td>
+            <td class="col-amount" data-amount="{% if record.pay_role == "shokunin" and record.display_total is not None %}{{ record.display_total }}{% elif is_shokunin and record.display_total is not None %}{{ record.display_total }}{% elif record.total_price is not None %}{{ record.total_price }}{% else %}0{% endif %}">{% if record.pay_role == "shokunin" and record.display_total is not None %}{{ record.display_total }}{% elif is_shokunin and record.display_total is not None %}{{ record.display_total }}{% elif record.total_price is not None %}{{ record.total_price }}{% else %}—{% endif %}</td>
         </tr>
         {% if record.helper_label %}
         <tr>
             <td></td>
-            <td></td>
+            <td class="date-cell"></td>
             <td></td>
             <td></td>
             <td>{{ record.helper_label }}</td>
             <td></td>
             <td></td>
             <td></td>
-            <td class="minus">−{{ record.helper_deduction }}</td>
+            <td class="minus col-amount" data-amount="-{{ record.helper_deduction }}">−{{ record.helper_deduction }}</td>
         </tr>
         {% endif %}
         {% endfor %}
     </table>
-    <p class="amount">合計金額：{% if print_total is not None %}{{ print_total }} 円{% else %}—{% endif %}</p>
+    <p class="amount{% if show_tax_block %} screen-only{% endif %}">合計金額：{% if print_total is not None %}{{ print_total }} 円{% else %}—{% endif %}</p>
     {% endif %}
 
+    {% include "workapp/_print_scripts.html" %}
 </body>
 </html>

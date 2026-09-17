@@ -8,11 +8,19 @@
 <body>
     <h2>{% if editing_voucher %}伝票の編集{% else %}伝票入力{% endif %}</h2>
     <nav>
+        {% if editing_voucher or list_qs %}
+        <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">戻る</a> |
+        {% else %}
+        <a href="{% url 'workrecord_search' %}">戻る</a> |
+        {% endif %}
         <a href="{% url 'workrecord_search' %}">伝票検索</a> |
         <a href="{% url 'workrecord_list' %}{% if list_qs %}?{{ list_qs }}{% endif %}">相手別一覧</a> |
         <a href="{% url 'logout' %}">ログアウト</a>
     </nav>
     <p class="note">{% if editing_voucher %}この伝票の内容すべてを表示しています。保存すると元請・職人・手元・応援がまとめて更新されます。{% else %}1回の保存で、元請・職人・手元・応援の金額のもとになります。{% endif %}</p>
+    {% if locked_party_labels %}
+    <p class="note">印刷済みの{{ locked_party_labels|join:"・" }}の行は、保存しても変更しません。先に期間印刷で取り消した相手だけが更新されます。</p>
+    {% endif %}
 
     <form method="POST">
         {% csrf_token %}
@@ -53,7 +61,7 @@
                 <div>{{ form.temoto3 }}{% if form.temoto3.errors %}<div class="errors">{{ form.temoto3.errors }}</div>{% endif %}</div>
                 <div></div>
             </div>
-            <p class="note">職人と手元は、作業員マスタの全員から選べます。同じ伝票で同じ人を職人と手元の両方には選べません。職人の控除は人数のみ（1人35%、2人以上40%）。手元の個人％は手元の支払だけに使います。</p>
+            <p class="note">職人・手元は空欄でも保存できます（応援のみの伝票など）。手元がいるときだけ、職人も選んでください。同じ伝票で同じ人を職人と手元の両方には選べません。職人の控除は人数のみ（1人35%、2人以上40%）。手元の個人％は手元の支払だけに使います。</p>
         </div>
 
         <div class="box">

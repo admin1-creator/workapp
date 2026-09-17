@@ -23,3 +23,15 @@ def site_with_gc(record):
 @register.filter
 def upper_company(record):
     return _value(record, "primary_company") or _value(record, "general_contractor")
+
+
+@register.filter
+def short_date(value):
+    if hasattr(value, "month") and hasattr(value, "day"):
+        return f"{value.month}/{value.day}"
+    text = str(value or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        month = text[5:7].lstrip("0") or "0"
+        day = text[8:10].lstrip("0") or "0"
+        return f"{month}/{day}"
+    return text

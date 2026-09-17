@@ -44,8 +44,9 @@ class WorkRecordBasicForm(forms.ModelForm):
 
     worker = forms.ModelChoiceField(
         queryset=Worker.objects.order_by("name"),
+        required=False,
         label="職人",
-        empty_label="選択してください",
+        empty_label="なし",
     )
 
     temoto1 = forms.ModelChoiceField(
@@ -279,6 +280,8 @@ class WorkRecordBasicForm(forms.ModelForm):
         if len(selected) != len(set(selected)):
             raise forms.ValidationError("手元は同じ人を重複して選べません。")
         worker = cleaned.get("worker")
+        if selected and not worker:
+            raise forms.ValidationError("手元がいるときは、職人も選んでください。")
         if worker and worker.pk in selected:
             raise forms.ValidationError("同じ人を職人と手元の両方には選べません。")
         if "dimension" in self.fields:

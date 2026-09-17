@@ -20,7 +20,84 @@
             color: #555;
             margin: 0 0 8px;
         }
-        h1 { font-size: 22px; margin: 0 0 8px; }
+        h1 { font-size: 22px; margin: 0 0 16px; }
+        .print-parties {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 24px;
+            margin: 0 0 20px;
+        }
+        .party-block, .issuer-block {
+            min-width: 40%;
+        }
+        .issuer-block { text-align: right; }
+        .party-role {
+            font-size: 12px;
+            color: #555;
+            margin: 0 0 4px;
+        }
+        .party-name {
+            font-size: 20px;
+            font-weight: bold;
+            margin: 0;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #111;
+            display: inline-block;
+            min-width: 12em;
+        }
+        .issuer-name {
+            font-size: 16px;
+            margin: 0 0 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #111;
+            display: inline-block;
+            min-width: 10em;
+        }
+        .issuer-detail {
+            font-size: 12px;
+            margin: 0 0 2px;
+            line-height: 1.5;
+        }
+        .kagami-save-form {
+            margin: 0;
+        }
+        .kagami-table {
+            width: 70%;
+            margin-left: auto;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+        }
+        .kagami-table th, .kagami-table td {
+            border: 1px solid #333;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+        .kagami-table th { background: #f3f3f3; font-weight: normal; }
+        .kagami-table td.yen { text-align: right; }
+        .kagami-table input[type="text"] {
+            width: 100%;
+            box-sizing: border-box;
+            border: none;
+            background: transparent;
+            font: inherit;
+            padding: 4px 0;
+        }
+        .kagami-table td.yen input {
+            text-align: right;
+        }
+        .tax-block { margin: 0 0 16px; text-align: left; }
+        .tax-included {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 0 0 6px;
+        }
+        .tax-included .tax-label { text-decoration: underline; }
+        .tax-all { font-size: 12px; margin: 0 0 16px; }
+        table.data td.date-cell { white-space: nowrap; width: 3.2em; }
+        tr.page-total td { font-weight: bold; background: #f3f3f3; }
+        tr.page-total td:first-child { text-align: right; }
+        .kagami-sum td { font-weight: bold; background: #f3f3f3; }
         .meta { color: #555; margin-bottom: 16px; }
         .stamp {
             display: inline-block;
@@ -35,14 +112,30 @@
             border-collapse: collapse;
             margin-bottom: 16px;
             table-layout: fixed;
+            border: 1px solid #000;
         }
+        table.data th, table.data td {
+            border: 1px solid #000;
+            padding: 4px 5px;
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: normal;
+        }
+        table.data col.col-voucher { width: 9%; }
+        table.data col.col-date { width: 7%; }
+        table.data col.col-site { width: 22%; }
+        table.data col.col-upper { width: 12%; }
+        table.data col.col-work { width: 16%; }
+        table.data col.col-size { width: 8%; }
+        table.data col.col-qty { width: 7%; }
+        table.data col.col-unit { width: 8%; }
         table.fields th { width: 28%; }
-        th, td {
-            border: 1px solid #333;
+        table.fields th, table.fields td, table.work th, table.work td {
+            border: 1px solid #000;
             padding: 6px 8px;
-            text-align: left;
             font-size: 12px;
-            word-break: break-word;
         }
         th { background: #f3f3f3; font-weight: normal; }
         .amount { font-size: 18px; font-weight: bold; }
@@ -60,4 +153,16 @@
                 box-shadow: none;
             }
             .no-print { display: none !important; }
+            .app-name, .kagami-note, .screen-only { display: none !important; }
+            .kagami { page-break-after: always; }
+            tr.break-after { page-break-after: always; }
+            .kagami-table input[type="text"] {
+                border: none;
+                background: transparent;
+                -webkit-appearance: none;
+            }
+            table.data th, table.data td {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
         }

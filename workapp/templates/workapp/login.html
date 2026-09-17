@@ -34,7 +34,11 @@
 </head>
 <body>
     <h1>請求支払い入力</h1>
+    {% if issuer_name %}
+    <p class="sub">{{ issuer_name }} ／ 社内用ログイン</p>
+    {% else %}
     <p class="sub">社内用ログイン</p>
+    {% endif %}
     <form method="post">
         {% csrf_token %}
         {% if form.non_field_errors %}

@@ -17,6 +17,14 @@
         .actions button { margin-right: 8px; padding: 8px 16px; }
         .note { color: #555; }
         .ok { color: #0a7; font-weight: bold; }
+        a.next {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #333;
+            color: #fff;
+            text-decoration: none;
+            margin-right: 8px;
+        }
         .missing { color: #b00000; }
         .meta p { margin: 4px 0; }
     </style>
@@ -26,12 +34,20 @@
     <h1>確認ページ</h1>
     {% if saved %}
     <p class="ok">保存しました。</p>
-    {% endif %}
     <p>
-        <a href="{% url 'workrecord_create' %}?restore=1">作業入力画面に戻る</a>
+        <a class="next" href="{% url 'workrecord_create' %}">続けて入力</a>
         ／
-        <a href="{% url 'workrecord_list' %}">一覧へ</a>
+        <a href="{% url 'workrecord_list' %}">相手別一覧</a>
+        ／
+        <a href="{% url 'workrecord_create' %}?restore=1">この内容を修正</a>
     </p>
+    {% else %}
+    <p>
+        <a href="{% url 'workrecord_create' %}?restore=1">戻る</a>
+        ／
+        <a href="{% url 'workrecord_list' %}">相手別一覧</a>
+    </p>
+    {% endif %}
 
     <div class="box box-new">
         <h2>① 新規入力データ（今回の伝票）</h2>

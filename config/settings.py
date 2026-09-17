@@ -64,6 +64,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'workapp.context_processors.issuer',
             ],
         },
     },
@@ -113,6 +114,12 @@ USE_TZ = True
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
+
+# 請求書・支払書・鑑に出す自社（発行者）
+ISSUER_NAME = "株式会社　自社"
+ISSUER_ADDRESS = "〒000-0000　自社県自社市1-1-1"
+ISSUER_TEL = "000-0000-0000"
+ISSUER_REPRESENTATIVE = "代表取締役　自社社長名"
 
 
 # Static files (CSS, JavaScript, Images)

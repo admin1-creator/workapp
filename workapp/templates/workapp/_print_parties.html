@@ -1,0 +1,23 @@
+    <div class="print-parties">
+        <div class="party-block">
+            <p class="party-role">{{ party_role_label }}</p>
+            {% if party_name %}
+            <p class="party-name">{{ party_name }}　{{ party_honorific }}</p>
+            {% else %}
+            <p class="party-name muted">（相手未選択）</p>
+            {% endif %}
+        </div>
+        <div class="issuer-block">
+            <p class="party-role">発行</p>
+            <p class="issuer-name">{{ issuer_name }}</p>
+            {% if issuer_address %}
+            <p class="issuer-detail">{{ issuer_address }}</p>
+            {% endif %}
+            {% if issuer_tel %}
+            <p class="issuer-detail">TEL　{{ issuer_tel }}</p>
+            {% endif %}
+            {% if issuer_representative %}
+            <p class="issuer-detail">{{ issuer_representative }}</p>
+            {% endif %}
+        </div>
+    </div>
