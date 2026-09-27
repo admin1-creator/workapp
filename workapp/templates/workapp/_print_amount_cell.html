@@ -1,0 +1,2 @@
+{% load display_labels %}
+            <td class="col-amount{% if value is not None and value < 0 %} minus{% endif %}" data-amount="{% if value is not None %}{{ value }}{% else %}0{% endif %}">{% if value is not None %}{{ value|comma_num }}{% endif %}</td>

@@ -40,7 +40,7 @@
         <tr>
             <td>{{ record.worker }}</td>
             <td>{{ record.work_type }}</td>
-            <td>{{ record.work_size }}</td>
+            <td>{{ record.work_size }}{% if record.size_mark %}　{{ record.size_mark }}{% endif %}</td>
             <td>{{ record.work_amount }}</td>
             <td>{{ record.remark }}</td>
             <td>{{ record.unit_price }}</td>

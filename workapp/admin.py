@@ -43,13 +43,13 @@ class WorkerRateInline(admin.TabularInline):
 class WorkerAdmin(admin.ModelAdmin):
     list_display = ("name", "use_common_rate", "temoto_percent", "company")
     list_filter = ("use_common_rate",)
-    search_fields = ("name",)
-    autocomplete_fields = ("company",)
+    search_fields = ("name", "company")
     exclude = ("worker_type",)
     inlines = (WorkerRateInline,)
     fieldsets = (
         (None, {
             "fields": ("name", "temoto_percent", "company"),
+            "description": "所属企業は通常空欄です。入力するのは専属のひとり親方だけで、だいたい本人名になります。応援企業は選びません。",
         }),
         ("単価", {
             "fields": ("use_common_rate",),

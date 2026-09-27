@@ -78,14 +78,14 @@
                 {% for row in section.rows %}
                 <tr>
                     <td>{{ row.type }}</td>
-                    <td>{{ row.size }}</td>
+                    <td>{{ row.size }}{% if row.size_mark %}　{{ row.size_mark }}{% endif %}</td>
                     <td>{{ row.amount }}</td>
                     <td>{{ row.remark }}</td>
                     {% if section.kind == "temoto" %}
                     <td>{{ row.helper }}</td>
                     <td>{{ row.percent }}</td>
                     {% endif %}
-                    <td>{% if row.price_mode == "manual" %}手入力{% elif row.unit_price is not None %}{{ row.unit_price }}{% endif %}</td>
+                    <td>{% if row.unit_price is not None %}{{ row.unit_price }}{% elif row.price_mode == "manual" %}手入力{% endif %}</td>
                     <td>{{ row.total_price }}</td>
                 </tr>
                 {% empty %}

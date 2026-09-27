@@ -19,10 +19,16 @@ from .models import (
     previous_period_for,
 )
 from .views import (
+    _amount_at_percent,
+    _collect_posted_work_lines,
     _moto_work_rows,
+    _next_month_end_label,
     _ouen_work_rows,
+    _pay_tax_context,
     _shokunin_work_rows,
+    _temoto_line_amounts,
     _temoto_work_rows,
+    _with_temoto_deduction,
     _worker_unit_price,
 )
 
@@ -160,7 +166,7 @@ class PartyFilterTests(LoggedInTestCase):
             "kind": "worker",
             "worker_id": self.shokunin.pk,
         })
-        self.assertContains(printed, "支払書")
+        self.assertContains(printed, "支払明細")
         self.assertContains(printed, "800")
         self.assertContains(printed, "150")
 
@@ -218,9 +224,10 @@ class PartyFilterTests(LoggedInTestCase):
             "moto_company": self.gc_a.pk,
         })
         self.assertContains(moto, "請求書")
-        self.assertContains(moto, "1000")
+        self.assertContains(moto, "1,000")
         self.assertContains(moto, "元請A")
         self.assertContains(moto, "御中")
+        self.assertContains(moto, "下記の通り、ご請求申し上げます。")
         self.assertContains(moto, "請求先")
         self.assertContains(moto, "発行")
         self.assertContains(moto, "自社")
@@ -228,8 +235,11 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(moto, "TEL　000-0000-0000")
         self.assertContains(moto, "代表取締役　自社社長名")
         self.assertContains(moto, "税込合計金額")
+        self.assertContains(moto, "tax-underline")
         self.assertContains(moto, "¥1,100")
-        self.assertContains(moto, "すべての合計 1,000（100）")
+        self.assertContains(moto, "税抜合計 1,000")
+        self.assertContains(moto, "消費税 10％ 100")
+        self.assertNotContains(moto, "税抜合計 1,000（100）")
 
         pay = self.client.get(base, {
             "from_date": "2026-09-01",
@@ -237,16 +247,26 @@ class PartyFilterTests(LoggedInTestCase):
             "kind": "worker",
             "worker_id": self.shokunin.pk,
         })
-        self.assertContains(pay, "支払書")
-        self.assertNotContains(pay, "支払書（職人）")
+        self.assertContains(pay, "支払明細")
+        self.assertNotContains(pay, "支払明細（職人）")
         self.assertContains(pay, "800")
         self.assertContains(pay, "職人太郎")
         self.assertContains(pay, "様")
         self.assertContains(pay, "支払先")
         self.assertContains(pay, "税込合計金額")
         self.assertContains(pay, "¥880")
-        self.assertContains(pay, "すべての合計 800（80）")
+        self.assertContains(pay, "税抜合計 800")
+        self.assertContains(pay, "消費税 10％ 80")
+        self.assertNotContains(pay, "税抜合計 800（80）")
+        self.assertNotContains(pay, "下記の通りお支払いいたします。")
+        self.assertNotContains(pay, "ご請求申し上げます。")
+        self.assertContains(pay, 'data-sheet-title="支払明細"')
+        self.assertContains(pay, 'data-party-name="職人太郎"')
+        self.assertContains(pay, "sheet-page-no")
+        self.assertContains(pay, '"No." + page + "/" + totalPages')
         self.assertContains(pay, "代表取締役　自社社長名")
+        self.assertContains(pay, "支払書をつける")
+        self.assertNotContains(pay, "<h1>支払書</h1>")
         self.assertNotContains(pay, "手元の一覧")
         self.assertNotContains(pay, "鑑（支払）")
 
@@ -257,14 +277,32 @@ class PartyFilterTests(LoggedInTestCase):
             "worker_id": self.shokunin.pk,
             "kagami": "1",
         })
-        self.assertContains(with_kagami, "鑑（支払）")
+        self.assertContains(with_kagami, "支払書")
+        self.assertContains(with_kagami, "<h1>支払書</h1>")
+        self.assertContains(with_kagami, "支払明細")
         self.assertContains(with_kagami, "代表取締役　自社社長名")
         self.assertContains(with_kagami, "税込合計金額")
-        self.assertContains(with_kagami, "すべての合計 800（80）")
+        self.assertContains(with_kagami, "税抜合計 800")
+        self.assertContains(with_kagami, "消費税 10％ 80")
+        self.assertContains(with_kagami, "下記の通りお支払いいたします。")
         self.assertContains(with_kagami, "売上")
         self.assertContains(with_kagami, 'name="kagami_amount_1"')
+        self.assertContains(with_kagami, 'name="kagami_amount_10"')
         self.assertContains(with_kagami, ">合計<")
         self.assertContains(with_kagami, "800")
+        self.assertContains(with_kagami, "支払書を保存")
+        self.assertContains(with_kagami, "2026年10月末")
+        self.assertContains(with_kagami, "対象期間：")
+
+        helper_kagami = self.client.get(base, {
+            "from_date": "2026-09-01",
+            "to_date": "2026-09-30",
+            "kind": "worker",
+            "worker_id": self.temoto.pk,
+            "kagami": "1",
+        })
+        self.assertContains(helper_kagami, "<h1>支払書</h1>")
+        self.assertContains(helper_kagami, "2026年10月末")
 
         moto_kagami = self.client.get(base, {
             "from_date": "2026-09-01",
@@ -273,7 +311,7 @@ class PartyFilterTests(LoggedInTestCase):
             "moto_company": self.gc_a.pk,
             "kagami": "1",
         })
-        self.assertNotContains(moto_kagami, "鑑（支払）")
+        self.assertNotContains(moto_kagami, "<h1>支払書</h1>")
 
         helper = self.client.get(base, {
             "from_date": "2026-09-01",
@@ -281,8 +319,8 @@ class PartyFilterTests(LoggedInTestCase):
             "kind": "worker",
             "worker_id": self.temoto.pk,
         })
-        self.assertContains(helper, "支払書")
-        self.assertNotContains(helper, "支払書（手元）")
+        self.assertContains(helper, "支払明細")
+        self.assertNotContains(helper, "支払明細（手元）")
         self.assertContains(helper, "200")
 
         ouen = self.client.get(base, {
@@ -291,8 +329,71 @@ class PartyFilterTests(LoggedInTestCase):
             "kind": "ouen",
             "company_id": self.company.pk,
         })
-        self.assertContains(ouen, "支払書（応援）")
+        self.assertContains(ouen, "支払明細（応援）")
         self.assertContains(ouen, "900")
+        self.assertNotContains(ouen, "支払書をつける")
+        ouen_kagami = self.client.get(base, {
+            "from_date": "2026-09-01",
+            "to_date": "2026-09-30",
+            "kind": "ouen",
+            "company_id": self.company.pk,
+            "kagami": "1",
+        })
+        self.assertNotContains(ouen_kagami, "<h1>支払書</h1>")
+        self.assertNotContains(ouen_kagami, "支払書をつける")
+
+    def test_print_keeps_voucher_together_and_uses_page_caps(self):
+        html = self.client.get(reverse("workrecord_print_period"), {
+            "from_date": "2026-09-01",
+            "to_date": "2026-09-30",
+            "kind": "moto",
+            "moto_company": self.gc_a.pk,
+        }).content.decode()
+        self.assertIn("var firstPage = 16;", html)
+        self.assertIn("var nextPage = 25;", html)
+        self.assertIn("function voucherGroups(rows)", html)
+        self.assertIn("current.length + group.length > cap()", html)
+        self.assertIn('data-voucher="V1"', html)
+
+    def test_worker_kagami_shows_next_month_end_not_period(self):
+        html = self.client.get(reverse("workrecord_print_period"), {
+            "from_date": "2026-09-01",
+            "to_date": "2026-09-30",
+            "kind": "worker",
+            "worker_id": self.shokunin.pk,
+            "kagami": "1",
+        }).content.decode()
+        start = html.find('class="kagami"')
+        end = html.find("</section>", start)
+        block = html[start:end]
+        self.assertIn("2026年10月末", block)
+        self.assertNotIn("対象期間", block)
+        self.assertIn("<h1>支払書</h1>", block)
+
+    def test_manual_unit_and_amount_print_on_moto_sheet(self):
+        contractor = GeneralContractor.objects.create(name="元請手入力")
+        WorkRecord.objects.create(
+            voucher_no="MAN1",
+            date=date(2026, 9, 10),
+            site="現場手",
+            work_type="圧接",
+            worker="元請",
+            general_contractor="元請手入力",
+            work_size="D19",
+            work_amount=4,
+            unit_price=250,
+            total_price=1000,
+            price_mode="manual",
+        )
+        html = self.client.get(reverse("workrecord_print_period"), {
+            "from_date": "2026-09-01",
+            "to_date": "2026-09-30",
+            "kind": "moto",
+            "moto_company": contractor.pk,
+        }).content.decode()
+        self.assertIn("250", html)
+        self.assertIn("1,000", html)
+        self.assertIn("D19", html)
 
     def test_kagami_saves_lines_and_uses_kagami_tax(self):
         period = reverse("workrecord_print_period")
@@ -318,9 +419,11 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(shown, 'value="調整"')
         self.assertContains(shown, 'name="kagami_amount_2"')
         self.assertContains(shown, 'value="100"')
-        self.assertContains(shown, "すべての合計 900（90）")
+        self.assertContains(shown, "税抜合計 900")
+        self.assertContains(shown, "消費税 10％ 90")
         self.assertContains(shown, "¥990")
-        self.assertContains(shown, "すべての合計 800（80）")
+        self.assertContains(shown, "税抜合計 800")
+        self.assertContains(shown, "消費税 10％ 80")
         self.assertContains(shown, "¥880")
 
         record = WorkRecord.objects.get(worker="職人", helpers="職人太郎")
@@ -342,8 +445,10 @@ class PartyFilterTests(LoggedInTestCase):
             "kagami": "1",
         })
         self.assertContains(single_shown, 'value="手当"')
-        self.assertContains(single_shown, "すべての合計 850（85）")
-        self.assertContains(single_shown, "すべての合計 800（80）")
+        self.assertContains(single_shown, "税抜合計 850")
+        self.assertContains(single_shown, "消費税 10％ 85")
+        self.assertContains(single_shown, "税抜合計 800")
+        self.assertContains(single_shown, "消費税 10％ 80")
 
     def test_temoto_and_ouen_print_match_shokunin_columns(self):
         headers = [
@@ -351,11 +456,11 @@ class PartyFilterTests(LoggedInTestCase):
             "<th>日付</th>",
             "<th>現場名</th>",
             "<th>上位企業</th>",
-            "<th>作業種類</th>",
+            "<th>作業内容</th>",
             "<th>寸法</th>",
-            "<th>作業量</th>",
+            "<th>数量</th>",
             "<th>単価</th>",
-            "<th>合計金額</th>",
+            '<th class="col-amount">金額</th>',
         ]
         period = reverse("workrecord_print_period")
         shokunin = self.client.get(period, {
@@ -421,7 +526,7 @@ class PartyFilterTests(LoggedInTestCase):
             "kind": "worker",
             "worker_id": self.temoto.pk,
         })
-        self.assertContains(printed, "V1", count=1)
+        self.assertContains(printed, "<td>V1</td>", count=1)
         self.assertContains(printed, "圧接、溶接")
         self.assertContains(printed, "250")
 
@@ -431,11 +536,40 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(response, "2. 職人・手元・応援")
         self.assertContains(response, "3. 作業内容")
         self.assertContains(response, 'name="work_type_1"')
+        self.assertContains(response, 'class="ime-hiragana"')
+        self.assertContains(response, 'lang="ja"')
+        self.assertContains(response, 'style="ime-mode: active"')
+        self.assertContains(response, 'name="rate_billing_1"')
         self.assertContains(response, 'name="voucher_no"')
         self.assertContains(response, 'name="price_mode_1"')
-        self.assertContains(response, "請求額")
-        self.assertContains(response, "支払額")
-        self.assertContains(response, "応援額")
+        self.assertContains(response, ">印</th>")
+        self.assertContains(response, 'name="size_mark_1"')
+        self.assertContains(response, ">請求単価</th>")
+        self.assertContains(response, ">請求額</th>")
+        self.assertContains(response, ">支払単価</th>")
+        self.assertContains(response, ">支払額</th>")
+        self.assertContains(response, ">応援単価</th>")
+        self.assertContains(response, ">応援額</th>")
+        self.assertContains(response, 'class="rate-unit rate-billing"')
+        self.assertContains(response, "col-rate")
+        self.assertContains(response, "col-sum")
+        self.assertNotContains(response, 'class="mode">単価</th>')
+
+    def test_empty_work_type_inherits_previous_line(self):
+        lines = _collect_posted_work_lines({
+            "work_type_1": "圧接",
+            "work_size_1": "1",
+            "work_amount_1": "2",
+            "work_type_2": "",
+            "work_size_2": "2",
+            "work_amount_2": "3",
+            "work_type_3": "",
+            "work_size_3": "",
+            "work_amount_3": "",
+        })
+        self.assertEqual(lines["work_types"], ["圧接", "圧接"])
+        self.assertEqual(lines["work_amounts"], [2, 3])
+        self.assertFalse(lines["type_missing"])
 
     def test_continue_input_after_save_opens_blank_form(self):
         session = self.client.session
@@ -501,6 +635,38 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertEqual(ouen_rows[0]["total_price"], 2000)
         self.assertEqual(ouen_totals["total"], 2000)
         self.assertNotEqual(ouen_rows[0]["total_price"], shokunin_totals["subtotal"])
+
+    def test_manual_line_uses_typed_unit_times_qty(self):
+        data = {
+            "voucher_no": "X2",
+            "date": date(2026, 9, 1),
+            "site": "現場X",
+            "general_contractor": "元請A",
+            "worker": "職人太郎",
+            "worker_id": self.shokunin.pk,
+            "company": "応援B",
+            "work_types": ["その他"],
+            "work_sizes": [""],
+            "work_amounts": [10],
+            "remarks": [""],
+            "price_modes": ["manual"],
+            "manual_billings": [None],
+            "manual_pays": [None],
+            "manual_ouens": [None],
+            "rate_billings": [200],
+            "rate_pays": [150],
+            "rate_ouens": [100],
+        }
+        moto_rows, moto_totals, _alloc = _moto_work_rows(data)
+        self.assertEqual(moto_rows[0]["unit_price"], 200)
+        self.assertEqual(moto_rows[0]["total_price"], 2000)
+        self.assertEqual(moto_totals["total"], 2000)
+        shokunin_rows, shokunin_totals, _alloc = _shokunin_work_rows(data, self.shokunin)
+        self.assertEqual(shokunin_rows[0]["unit_price"], 150)
+        self.assertEqual(shokunin_totals["subtotal"], 1500)
+        ouen_rows, ouen_totals, _alloc = _ouen_work_rows(data)
+        self.assertEqual(ouen_rows[0]["unit_price"], 100)
+        self.assertEqual(ouen_rows[0]["total_price"], 1000)
 
     def test_edit_form_is_grouped(self):
         Site.objects.create(name="現場X", general_contractor=self.gc_a)
@@ -733,7 +899,9 @@ class LoginAndPrintTests(LoggedInTestCase):
 
         frozen = self.client.get(period, params)
         self.assertContains(frozen, "印刷済み")
-        self.assertContains(frozen, "1000")
+        self.assertContains(frozen, 'class="stamp screen-only"')
+        self.assertContains(frozen, "金額は印刷時点で固定")
+        self.assertContains(frozen, "1,000")
         self.assertNotContains(frozen, "9999")
 
         listed = self.client.get(reverse("workrecord_list"), {
@@ -847,8 +1015,8 @@ class LoginAndPrintTests(LoggedInTestCase):
             total_price=800,
         )
         response = self.client.get(reverse("workrecord_print", args=[record.pk]), {"kind": "worker"})
-        self.assertContains(response, "支払書")
-        self.assertNotContains(response, "支払書（職人）")
+        self.assertContains(response, "支払明細")
+        self.assertNotContains(response, "支払明細（職人）")
         self.assertContains(response, "請求支払い入力")
         self.assertContains(response, "職人太郎")
         self.assertContains(response, "様")
@@ -881,12 +1049,22 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertLess(html.find("伝票番号"), html.find("日付"))
         self.assertLess(html.find(">日付</th>"), html.find(">現場名</th>"))
         self.assertLess(html.find(">現場名</th>"), html.find(">上位企業</th>"))
-        self.assertLess(html.find(">上位企業</th>"), html.find(">作業種類</th>"))
-        self.assertIn("現場M（元請I）", html)
-        self.assertLess(html.find(">作業種類</th>"), html.find(">寸法</th>"))
-        self.assertLess(html.find(">寸法</th>"), html.find(">作業量</th>"))
-        self.assertLess(html.find(">作業量</th>"), html.find(">単価</th>"))
-        self.assertLess(html.find(">単価</th>"), html.find(">合計金額</th>"))
+        self.assertLess(html.find(">上位企業</th>"), html.find(">作業内容</th>"))
+        self.assertIn("現場M", html)
+        self.assertIn("元請I", html)
+        self.assertNotIn("現場M（元請I）", html)
+        self.assertIn('class="site-span" colspan="7">現場M</td>', html)
+        self.assertIn("site-row", html)
+        self.assertLess(html.find("site-row"), html.find(">元請I</td>"))
+        self.assertIn("page-fill", html)
+        self.assertLess(html.find(">作業内容</th>"), html.find(">寸法</th>"))
+        self.assertLess(html.find(">寸法</th>"), html.find(">数量</th>"))
+        self.assertLess(html.find(">数量</th>"), html.find(">単価</th>"))
+        self.assertLess(html.find(">単価</th>"), html.find(">金額</th>"))
+        self.assertIn("col.col-site { width: 12%; }", html)
+        self.assertIn("col.col-work { width: 20%; }", html)
+        self.assertIn("col.col-size { width: 14%; }", html)
+        self.assertNotIn("table.data th.col-amount {\n            text-decoration: underline", html)
 
     def test_single_print_shows_all_voucher_work_lines(self):
         contractor = GeneralContractor.objects.create(name="元請J")
@@ -914,8 +1092,58 @@ class LoginAndPrintTests(LoggedInTestCase):
         )
         self.assertContains(html, "圧接")
         self.assertContains(html, "溶接")
-        self.assertContains(html, "1000")
+        self.assertContains(html, "1,000")
         self.assertContains(html, "400")
+
+    def test_print_blanks_repeated_fields_within_voucher(self):
+        contractor = GeneralContractor.objects.create(name="元請R")
+        first = WorkRecord.objects.create(
+            voucher_no="R1",
+            date=date(2026, 9, 5),
+            site="現場R",
+            work_type="圧接",
+            worker="元請",
+            general_contractor="元請R",
+            primary_company="一次R",
+            total_price=1000,
+        )
+        WorkRecord.objects.create(
+            voucher_no="R1",
+            date=date(2026, 9, 5),
+            site="現場R",
+            work_type="圧接",
+            worker="元請",
+            general_contractor="元請R",
+            primary_company="一次R",
+            total_price=400,
+        )
+        WorkRecord.objects.create(
+            voucher_no="R1",
+            date=date(2026, 9, 6),
+            site="現場R2",
+            work_type="溶接",
+            worker="元請",
+            general_contractor="元請R",
+            primary_company="一次R",
+            total_price=200,
+        )
+        html = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        ).content.decode()
+        self.assertEqual(html.count("<td>R1</td>"), 1)
+        self.assertEqual(html.count(">9/5</td>"), 1)
+        self.assertEqual(html.count(">9/6</td>"), 1)
+        self.assertEqual(html.count(">現場R<"), 1)
+        self.assertEqual(html.count(">現場R2<"), 1)
+        self.assertEqual(html.count(">一次R</td>"), 1)
+        self.assertEqual(html.count(">圧接</td>"), 1)
+        self.assertEqual(html.count(">溶接</td>"), 1)
 
     def test_shokunin_list_and_print_show_helper_minus(self):
         worker = Worker.objects.create(name="職人次郎", worker_type="職人")
@@ -928,6 +1156,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             helpers="職人次郎",
             general_contractor="元請A",
             work_size="D19",
+            size_mark="長尺",
             work_amount=10,
             unit_price=1000,
             total_price=6500,
@@ -962,6 +1191,14 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertGreater(remark_pos, amount_pos)
         self.assertEqual(listed.count("手元（手元花子）"), 1)
         self.assertIn("−4200", listed)
+        self.assertLess(listed.find(">圧接</td>"), listed.find(">溶接</td>"))
+        self.assertLess(listed.find(">溶接</td>"), listed.find("手元（手元花子）"))
+        worker_listed = self.client.get(reverse("workrecord_list"), {
+            "kind": "worker",
+            "worker_id": worker.pk,
+        }).content.decode()
+        self.assertLess(worker_listed.find(">圧接</td>"), worker_listed.find(">溶接</td>"))
+        self.assertLess(worker_listed.find(">溶接</td>"), worker_listed.find("手元（手元花子）"))
         self.assertEqual(listed.count(">印刷</a>"), 1)
         self.assertEqual(listed.count(">編集</a>"), 1)
 
@@ -971,7 +1208,11 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertLess(printed.find(">伝票番号</th>"), printed.find(">日付</th>"))
         self.assertLess(printed.find(">現場名</th>"), printed.find(">上位企業</th>"))
         self.assertEqual(printed.count("手元（手元花子）"), 1)
-        self.assertIn("−4200", printed)
+        self.assertIn("−4,200", printed)
+        self.assertLess(printed.find(">圧接</td>"), printed.find(">溶接</td>"))
+        self.assertLess(printed.find(">溶接</td>"), printed.find("手元（手元花子）"))
+        self.assertIn('data-voucher="H1"', printed)
+        self.assertIn("D19　長尺", printed)
         self.assertIn("圧接", printed)
         self.assertIn("溶接", printed)
 
@@ -1063,6 +1304,15 @@ class AdminAutocompleteTests(LoggedInTestCase):
         self.assertContains(response, "独自単価")
         self.assertContains(response, "workerrate_set")
 
+    def test_worker_admin_company_is_text_not_ouen(self):
+        Company.objects.create(name="応援は出さない")
+        response = self.client.get(reverse("admin:workapp_worker_add"))
+        html = response.content.decode()
+        self.assertIn('id="id_company"', html)
+        self.assertNotIn('select name="company"', html)
+        self.assertNotIn("応援は出さない", html)
+        self.assertContains(response, "専属のひとり親方")
+
 
 class WorkerRateChoiceTests(TestCase):
     def setUp(self):
@@ -1094,6 +1344,45 @@ class WorkerRateChoiceTests(TestCase):
         })
         self.assertEqual(common.json()["unit_price"], 800)
         self.assertEqual(own.json()["unit_price"], 650)
+
+
+class PercentFloorTests(TestCase):
+    def test_percent_result_drops_fraction(self):
+        self.assertEqual(_amount_at_percent(851, 10), 85)
+        self.assertEqual(_amount_at_percent(1001, 35), 350)
+        self.assertEqual(_amount_at_percent(1001, 40), 400)
+        self.assertNotEqual(_amount_at_percent(851, 10), 86)
+
+    def test_tax_10_percent_floors(self):
+        ctx = _pay_tax_context("shokunin", 851)
+        self.assertEqual(ctx["pay_tax"], "85")
+        self.assertEqual(ctx["pay_tax_included"], "936")
+
+    def test_next_month_end_label(self):
+        self.assertEqual(_next_month_end_label(date(2026, 9, 30)), "2026年10月末")
+        self.assertEqual(_next_month_end_label("2026-12-31"), "2027年1月末")
+
+    def test_shokunin_deduction_floors_then_subtracts(self):
+        rows = [{"total_price": 1001}]
+        totals = _with_temoto_deduction(rows, {
+            "count": 1,
+            "temoto_pool": 35,
+            "temoto_each": 35,
+            "mode": "count",
+            "shares": [],
+        })
+        self.assertEqual(totals["deduction"], 350)
+        self.assertEqual(totals["total"], 651)
+        self.assertEqual(rows[0]["total_price"], 651)
+
+    def test_temoto_share_floors(self):
+        amounts = _temoto_line_amounts(1001, {
+            "count": 1,
+            "split_pool": False,
+            "temoto_pool": 35,
+            "shares": [{"percent": 35}],
+        })
+        self.assertEqual(amounts, [350])
 
 
 

@@ -16,20 +16,27 @@
         if (!table) return;
         var sum = 0;
         table.querySelectorAll("input[data-kagami-amount]").forEach(function (input) {
-            sum += parseAmount(input.value);
+            var n = parseAmount(input.value);
+            sum += n;
+            var td = input.closest("td");
+            if (td) td.classList.toggle("minus", n < 0);
         });
         var out = table.querySelector(".kagami-sum-value");
         if (out) out.textContent = formatAmount(sum);
-        var tax = Math.floor(sum * 10 / 100);
+        var tax = Math.floor(Number(sum) * 10 / 100);
         var block = document.querySelector(".kagami .tax-block");
         if (block) {
             var included = block.querySelector(".tax-included");
             var all = block.querySelector(".tax-all");
             if (included) {
-                included.innerHTML = '<span class="tax-label">税込合計金額</span>　¥' + formatAmount(sum + tax);
+                included.innerHTML = '<span class="tax-underline">税込合計金額　¥' + formatAmount(sum + tax) + '</span>';
             }
             if (all) {
-                all.textContent = "すべての合計 " + formatAmount(sum) + "（" + formatAmount(tax) + "）";
+                all.textContent = "税抜合計 " + formatAmount(sum);
+            }
+            var rate = block.querySelector(".tax-rate");
+            if (rate) {
+                rate.textContent = "消費税 10％ " + formatAmount(tax);
             }
         }
     }
@@ -43,26 +50,115 @@
         return parseAmount(cell.textContent);
     }
 
+    function continuationLabel(table) {
+        var title = table.getAttribute("data-sheet-title") || "";
+        var name = table.getAttribute("data-party-name") || "";
+        var honorific = table.getAttribute("data-party-honorific") || "";
+        var period = table.getAttribute("data-period") || "";
+        var party = name ? (honorific ? name + "　" + honorific : name) : "";
+        return [title, party, period].filter(Boolean).join("　");
+    }
+
+    function makeContinuationHeader(table, page, totalPages, colCount) {
+        var tr = document.createElement("tr");
+        tr.className = "page-cont-header";
+        var td = document.createElement("td");
+        td.colSpan = colCount;
+        var wrap = document.createElement("div");
+        wrap.className = "cont-head";
+        var left = document.createElement("span");
+        left.className = "cont-head-main";
+        left.textContent = continuationLabel(table);
+        var right = document.createElement("span");
+        right.className = "sheet-page-no";
+        right.textContent = pageNo(page, totalPages);
+        wrap.appendChild(left);
+        wrap.appendChild(right);
+        td.appendChild(wrap);
+        tr.appendChild(td);
+        return tr;
+    }
+
+    function pageNo(page, totalPages) {
+        return "No." + page + "/" + totalPages;
+    }
+
+    function setFirstPageNo(totalPages) {
+        var sheet = document.querySelector("h1.sheet-title .sheet-page-no");
+        if (sheet) sheet.textContent = pageNo(1, totalPages);
+    }
+
+    function voucherGroups(rows) {
+        var groups = [];
+        var current = [];
+        var key = null;
+        rows.forEach(function (row) {
+            var nextKey = row.getAttribute("data-voucher") || "";
+            if (!current.length || nextKey === key) {
+                current.push(row);
+                key = nextKey;
+                return;
+            }
+            groups.push(current);
+            current = [row];
+            key = nextKey;
+        });
+        if (current.length) groups.push(current);
+        return groups;
+    }
+
+    function chunkRows(rows, firstPage, nextPage) {
+        var chunks = [];
+        var current = [];
+        function cap() {
+            return chunks.length === 0 ? firstPage : nextPage;
+        }
+        voucherGroups(rows).forEach(function (group) {
+            if (current.length && current.length + group.length > cap()) {
+                chunks.push(current);
+                current = [];
+            }
+            current = current.concat(group);
+        });
+        if (current.length) chunks.push(current);
+        return chunks;
+    }
+
     function paginatePaySheet(table) {
-        table.querySelectorAll("tr.page-total, tr.page-header").forEach(function (row) {
+        table.querySelectorAll("tr.page-total, tr.page-header, tr.page-cont-header, tr.page-fill").forEach(function (row) {
             row.remove();
         });
         var header = table.querySelector("tr");
         if (!header) return;
         var rows = Array.prototype.filter.call(table.querySelectorAll("tr"), function (row) {
-            return row.querySelector("th") === null && !row.classList.contains("empty-row");
+            return row.querySelector("th") === null && !row.classList.contains("empty-row") && !row.classList.contains("page-fill");
         });
-        if (!rows.length) return;
         var firstPage = 16;
-        var nextPage = 22;
-        var index = 0;
-        var page = 0;
+        var nextPage = 25;
         var colCount = header.querySelectorAll("th").length;
-        while (index < rows.length) {
-            var cap = page === 0 ? firstPage : nextPage;
-            var chunk = rows.slice(index, index + cap);
-            index += cap;
-            page += 1;
+        if (!rows.length) {
+            setFirstPageNo(1);
+            return;
+        }
+        var chunks = chunkRows(rows, firstPage, nextPage);
+        var totalPages = chunks.length;
+        chunks.forEach(function (chunk, i) {
+            var page = i + 1;
+            var cap = page === 1 ? firstPage : nextPage;
+            var lastContent = chunk[chunk.length - 1];
+            var fillCount = cap - chunk.length;
+            for (var f = 0; f < fillCount; f++) {
+                var fill = document.createElement("tr");
+                fill.className = "page-fill";
+                for (var c = 0; c < colCount; c++) {
+                    var cell = document.createElement("td");
+                    cell.textContent = "\u00a0";
+                    fill.appendChild(cell);
+                }
+                lastContent.after(fill);
+                lastContent = fill;
+                chunk.push(fill);
+            }
             var sum = chunk.reduce(function (total, row) {
                 return total + amountOf(row);
             }, 0);
@@ -70,20 +166,23 @@
             totalRow.className = "page-total";
             var label = document.createElement("td");
             label.colSpan = colCount - 1;
-            label.textContent = "合計";
+            label.textContent = "小計";
             var value = document.createElement("td");
             value.className = "col-amount";
             value.textContent = formatAmount(sum);
             totalRow.appendChild(label);
             totalRow.appendChild(value);
             chunk[chunk.length - 1].after(totalRow);
-            if (index < rows.length) {
+            if (page < totalPages) {
                 totalRow.classList.add("break-after");
                 var cloned = header.cloneNode(true);
                 cloned.classList.add("page-header");
+                var cont = makeContinuationHeader(table, page + 1, totalPages, colCount);
                 totalRow.after(cloned);
+                totalRow.after(cont);
             }
-        }
+        });
+        setFirstPageNo(totalPages);
     }
 
     document.addEventListener("DOMContentLoaded", function () {

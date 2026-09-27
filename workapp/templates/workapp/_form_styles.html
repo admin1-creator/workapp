@@ -2,7 +2,7 @@
 body {
     font-family: "Yu Gothic", "Meiryo", sans-serif;
     color: #111;
-    max-width: 1400px;
+    max-width: 1680px;
     margin: 24px auto;
     padding: 0 16px 40px;
 }
@@ -35,6 +35,11 @@ nav { margin: 0 0 20px; color: #555; }
     padding: 6px 8px;
     font-size: 15px;
 }
+.ime-hiragana {
+    ime-mode: active !important;
+    -webkit-ime-mode: active !important;
+    -ms-ime-mode: hiragana !important;
+}
 .errors {
     color: #b00000;
     margin: 0 0 12px;
@@ -51,10 +56,20 @@ table.lines th, table.lines td {
 }
 table.lines th { background: #f3f3f3; }
 table.lines input, table.lines select { width: 100%; box-sizing: border-box; padding: 4px 6px; }
-table.lines .num { width: 72px; }
-table.lines .size { width: 120px; }
-table.lines .money { width: 92px; }
-table.lines .mode { width: 88px; }
+table.lines .num { width: 56px; }
+table.lines .size { width: 108px; }
+table.lines .mark { width: 72px; }
+table.lines .money { width: 78px; }
+table.lines .mode { width: 92px; }
+table.lines th.col-rate { background: #d5e4f2; }
+table.lines td.col-rate { background: #e7f0f8; }
+table.lines th.col-sum { background: #ead9a3; }
+table.lines td.col-sum { background: #f6edd4; }
+table.lines td.col-rate input { background: #e7f0f8; }
+table.lines td.col-sum input.manual-amount { background: #f6edd4; }
+table.lines td.col-sum input.manual-amount.is-manual { background: #fff; }
+table.lines td.col-rate input.rate-unit.is-manual { background: #fff; }
+.lines-wrap { overflow-x: auto; }
 .readonly-box {
     padding: 6px 8px;
     background: #eee;

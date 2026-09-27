@@ -6,6 +6,9 @@
             {% else %}
             <p class="party-name muted">（相手未選択）</p>
             {% endif %}
+            {% if payment_lead %}
+            <p class="kagami-lead">{{ payment_lead }}</p>
+            {% endif %}
         </div>
         <div class="issuer-block">
             <p class="party-role">発行</p>

@@ -105,12 +105,12 @@ class Worker(models.Model):
         default=True,
         help_text="オフにすると、この作業員だけの単価を下の表で入力します。",
     )
-    company = models.ForeignKey(
-        Company,
-        verbose_name="所属企業",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
+    company = models.CharField(
+        "所属企業",
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="基本は空欄（自社）です。専属のひとり親方のときだけ、本人名や屋号を入力します。応援の会社名は入れません。",
     )
 
     class Meta:
@@ -243,6 +243,7 @@ class WorkRecord(models.Model):
     dimension = models.CharField("寸法", max_length=255, null=True, blank=True)
     work_amount = models.IntegerField(null=True, blank=True)
     remark = models.CharField("備考", max_length=255, blank=True, default="")
+    size_mark = models.CharField("印", max_length=20, blank=True, default="")
     price_mode = models.CharField(
         "単価区分",
         max_length=10,
@@ -285,10 +286,10 @@ class WorkRecord(models.Model):
 class PrintedDocument(models.Model):
     KIND_CHOICES = [
         ("moto", "請求書（元請）"),
-        ("worker", "支払書（作業員）"),
-        ("shokunin", "支払書（職人）"),
-        ("temoto", "支払書（手元）"),
-        ("ouen", "支払書（応援）"),
+        ("worker", "支払明細（作業員）"),
+        ("shokunin", "支払明細（職人）"),
+        ("temoto", "支払明細（手元）"),
+        ("ouen", "支払明細（応援）"),
     ]
     STATUS_CHOICES = [
         ("printed", "印刷済み"),
@@ -326,14 +327,14 @@ class PrintedDocument(models.Model):
 
 class KagamiSheet(models.Model):
     scope_key = models.CharField("対象キー", max_length=255, unique=True)
-    lines = models.JSONField("鑑の行", default=list, blank=True)
-    total_amount = models.IntegerField("鑑の合計", default=0)
+    lines = models.JSONField("支払書の行", default=list, blank=True)
+    total_amount = models.IntegerField("支払書の合計", default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "鑑"
-        verbose_name_plural = "鑑"
+        verbose_name = "支払書"
+        verbose_name_plural = "支払書"
 
     def __str__(self):
         return self.scope_key
@@ -394,7 +395,7 @@ class Invoice(models.Model):
 
 
 # -----------------------------
-#  支払書（作業員・手元・応援企業）
+#  支払明細（作業員・手元・応援企業）
 # -----------------------------
 class Payment(models.Model):
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, null=True, blank=True)
@@ -405,7 +406,7 @@ class Payment(models.Model):
 
     def __str__(self):
         if self.worker:
-            return f"{self.worker.name} 支払書（{self.period_start}〜{self.period_end}）"
+            return f"{self.worker.name} 支払明細（{self.period_start}〜{self.period_end}）"
         else:
-            return f"{self.company.name} 支払書（{self.period_start}〜{self.period_end}）"
+            return f"{self.company.name} 支払明細（{self.period_start}〜{self.period_end}）"
 

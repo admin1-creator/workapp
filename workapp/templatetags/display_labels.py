@@ -35,3 +35,14 @@ def short_date(value):
         day = text[8:10].lstrip("0") or "0"
         return f"{month}/{day}"
     return text
+
+
+@register.filter
+def comma_num(value):
+    if value is None or value == "":
+        return ""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return value
+    return f"{number:,}"

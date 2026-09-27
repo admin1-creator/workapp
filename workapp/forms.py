@@ -77,6 +77,11 @@ class WorkRecordBasicForm(forms.ModelForm):
     work_type = forms.CharField(
         required=False,
         label="作業内容",
+        widget=forms.TextInput(attrs={
+            "class": "ime-hiragana",
+            "lang": "ja",
+            "autocomplete": "off",
+        }),
     )
     work_size = forms.CharField(
         required=False,

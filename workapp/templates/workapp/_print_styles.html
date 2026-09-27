@@ -15,12 +15,40 @@
             box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
         }
         .app-name {
-            font-size: 12px;
+            font-size: 13px;
             letter-spacing: 0.08em;
             color: #555;
             margin: 0 0 8px;
         }
-        h1 { font-size: 22px; margin: 0 0 16px; }
+        h1 { font-size: 23px; margin: 0 0 16px; }
+        h1.sheet-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .sheet-page-no {
+            font-size: 14px;
+            font-weight: normal;
+            white-space: nowrap;
+        }
+        tr.page-cont-header td {
+            border: 1px solid #000;
+            border-bottom: none;
+            background: #fff;
+            padding: 6px 8px 10px;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+        }
+        .cont-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            font-size: 14px;
+        }
+        .cont-head-main { font-size: 15px; font-weight: bold; }
         .print-parties {
             display: flex;
             justify-content: space-between;
@@ -33,12 +61,12 @@
         }
         .issuer-block { text-align: right; }
         .party-role {
-            font-size: 12px;
+            font-size: 13px;
             color: #555;
             margin: 0 0 4px;
         }
         .party-name {
-            font-size: 20px;
+            font-size: 21px;
             font-weight: bold;
             margin: 0;
             padding-bottom: 4px;
@@ -47,7 +75,7 @@
             min-width: 12em;
         }
         .issuer-name {
-            font-size: 16px;
+            font-size: 17px;
             margin: 0 0 8px;
             padding-bottom: 4px;
             border-bottom: 1px solid #111;
@@ -55,7 +83,7 @@
             min-width: 10em;
         }
         .issuer-detail {
-            font-size: 12px;
+            font-size: 13px;
             margin: 0 0 2px;
             line-height: 1.5;
         }
@@ -67,11 +95,14 @@
             margin-left: auto;
             border-collapse: collapse;
             margin-bottom: 12px;
+            table-layout: fixed;
         }
+        .kagami-table col.kagami-item { width: 70%; }
+        .kagami-table col.kagami-yen { width: 30%; }
         .kagami-table th, .kagami-table td {
             border: 1px solid #333;
-            padding: 10px 12px;
-            font-size: 14px;
+            padding: 4px 10px;
+            font-size: 15px;
         }
         .kagami-table th { background: #f3f3f3; font-weight: normal; }
         .kagami-table td.yen { text-align: right; }
@@ -81,23 +112,52 @@
             border: none;
             background: transparent;
             font: inherit;
-            padding: 4px 0;
+            padding: 1px 0;
         }
         .kagami-table td.yen input {
             text-align: right;
         }
         .tax-block { margin: 0 0 16px; text-align: left; }
         .tax-included {
-            font-size: 18px;
+            font-size: 19px;
             font-weight: bold;
             margin: 0 0 6px;
         }
-        .tax-included .tax-label { text-decoration: underline; }
-        .tax-all { font-size: 12px; margin: 0 0 16px; }
+        .tax-included .tax-underline {
+            text-decoration: underline;
+            text-decoration-style: double;
+            text-underline-offset: 3px;
+        }
+        .tax-all { font-size: 13px; margin: 0 0 4px; }
+        .tax-rate { font-size: 13px; margin: 0 0 16px; }
+        .kagami-lead {
+            font-size: 14px;
+            margin: 8px 0 0;
+        }
         table.data td.date-cell { white-space: nowrap; width: 3.2em; }
-        tr.page-total td { font-weight: bold; background: #f3f3f3; }
-        tr.page-total td:first-child { text-align: right; }
-        .kagami-sum td { font-weight: bold; background: #f3f3f3; }
+        tr.page-total td {
+            font-weight: bold;
+            background: #dce6f2;
+            border-top: 2px solid #000;
+            border-bottom: 2px solid #000;
+        }
+        tr.page-total td:first-child {
+            text-align: right;
+            border-left: 2px solid #000;
+        }
+        tr.page-total td:last-child {
+            border-right: 2px solid #000;
+        }
+        .kagami-sum td {
+            font-weight: bold;
+            background: #dce6f2;
+            border-top: 2px solid #000;
+            border-bottom: 2px solid #000;
+        }
+        .kagami-sum td:first-child { border-left: 2px solid #000; }
+        .kagami-sum td:last-child { border-right: 2px solid #000; }
+        .kagami-table .minus,
+        .kagami-table .minus input { color: #b00000; }
         .meta { color: #555; margin-bottom: 16px; }
         .stamp {
             display: inline-block;
@@ -105,7 +165,7 @@
             color: #b00000;
             padding: 2px 10px;
             margin-left: 8px;
-            font-size: 13px;
+            font-size: 14px;
         }
         table.data, table.fields, table.work {
             width: 100%;
@@ -117,7 +177,9 @@
         table.data th, table.data td {
             border: 1px solid #000;
             padding: 4px 5px;
-            font-size: 11px;
+            font-size: 12px;
+            line-height: 1.35;
+            height: 22px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -125,20 +187,35 @@
         }
         table.data col.col-voucher { width: 9%; }
         table.data col.col-date { width: 7%; }
-        table.data col.col-site { width: 22%; }
+        table.data col.col-site { width: 12%; }
         table.data col.col-upper { width: 12%; }
-        table.data col.col-work { width: 16%; }
-        table.data col.col-size { width: 8%; }
+        table.data col.col-work { width: 20%; }
+        table.data col.col-size { width: 14%; }
         table.data col.col-qty { width: 7%; }
         table.data col.col-unit { width: 8%; }
+        table.data th.col-amount,
+        table.data td.col-amount { text-align: right; }
+        tr.site-row td.site-span {
+            height: 22px;
+            white-space: nowrap;
+            overflow: visible;
+            text-overflow: clip;
+            word-break: normal;
+        }
+        tr.page-fill td {
+            height: 22px;
+            line-height: 1.35;
+            padding: 4px 5px;
+            font-size: 12px;
+        }
         table.fields th { width: 28%; }
         table.fields th, table.fields td, table.work th, table.work td {
             border: 1px solid #000;
             padding: 6px 8px;
-            font-size: 12px;
+            font-size: 13px;
         }
         th { background: #f3f3f3; font-weight: normal; }
-        .amount { font-size: 18px; font-weight: bold; }
+        .amount { font-size: 19px; font-weight: bold; }
         .minus { color: #b00000; }
         .no-print { margin-bottom: 20px; }
         .no-print form, .no-print button, .no-print a { margin-right: 8px; }
@@ -161,7 +238,9 @@
                 background: transparent;
                 -webkit-appearance: none;
             }
-            table.data th, table.data td {
+            table.data th, table.data td,
+            tr.page-total td,
+            .kagami-sum td {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }

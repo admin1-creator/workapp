@@ -1,0 +1,44 @@
+        {% load display_labels %}
+        {% for record in rows %}
+        {% if record.print_show_site %}
+        <tr class="site-row" data-voucher="{{ record.voucher_no|default:record.id }}">
+            <td>{% if record.print_show_voucher %}{{ record.voucher_no }}{% endif %}</td>
+            <td class="date-cell">{% if record.print_show_date %}{{ record.date|short_date }}{% endif %}</td>
+            <td class="site-span" colspan="7">{{ record.site }}</td>
+        </tr>
+        {% endif %}
+        <tr data-voucher="{{ record.voucher_no|default:record.id }}">
+            <td></td>
+            <td class="date-cell"></td>
+            <td></td>
+            <td>{% if record.print_show_upper %}{{ record|upper_company }}{% endif %}</td>
+            <td>{% if record.print_show_work %}{{ record.work_type }}{% endif %}</td>
+            <td>{% if record.work_size %}{{ record.work_size }}{% if record.size_mark %}　{{ record.size_mark }}{% endif %}{% elif record.size_mark %}{{ record.size_mark }}{% endif %}</td>
+            <td>{% if record.work_amount is not None %}{{ record.work_amount|comma_num }}{% endif %}</td>
+            <td>{% if record.unit_price is not None %}{{ record.unit_price|comma_num }}{% endif %}</td>
+            {% if record.pay_role == "shokunin" and record.display_total is not None %}
+            {% include "workapp/_print_amount_cell.html" with value=record.display_total %}
+            {% elif is_shokunin and record.display_total is not None %}
+            {% include "workapp/_print_amount_cell.html" with value=record.display_total %}
+            {% else %}
+            {% include "workapp/_print_amount_cell.html" with value=record.total_price %}
+            {% endif %}
+        </tr>
+        {% if show_helpers and record.helper_label %}
+        <tr data-voucher="{{ record.voucher_no|default:record.id }}">
+            <td></td>
+            <td class="date-cell"></td>
+            <td></td>
+            <td></td>
+            <td>{{ record.helper_label }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="minus col-amount" data-amount="-{{ record.helper_deduction }}">−{{ record.helper_deduction|comma_num }}</td>
+        </tr>
+        {% endif %}
+        {% empty %}
+        <tr class="empty-row">
+            <td colspan="9">この期間の記録はありません。</td>
+        </tr>
+        {% endfor %}

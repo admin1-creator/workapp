@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <title>伝票入力</title>
@@ -66,32 +66,38 @@
 
         <div class="box">
             <h3>3. 作業内容（最大15行）</h3>
-            <p class="note">決まった単価がない行は「手入力」を選び、請求額・支払額・応援額を別々に入れてください。手元は支払額から、いつもの人数％で計算します。</p>
+            <p class="note">同じ伝票なら、2行目以降の作業内容は空でも直前の内容を使います。作業内容はかな入力から始められます。印は長尺・特寸など短い言葉を手入力します。空なら印刷しません。単価区分がマスタのときは、請求・支払・応援の単価と、作業量を掛けた金額を表示します。手入力のときは単価を入れてください。金額は単価×作業量です。手元は支払額から、いつもの人数％で計算します。</p>
+            <div class="lines-wrap">
             <table class="lines">
                 <tr>
                     <th class="num">行</th>
                     <th>作業内容</th>
                     <th class="size">寸法</th>
+                    <th class="mark">印</th>
                     <th class="num">作業量</th>
                     <th>備考</th>
-                    <th class="mode">単価</th>
-                    <th class="money">請求額</th>
-                    <th class="money">支払額</th>
-                    <th class="money">応援額</th>
+                    <th class="mode">単価区分</th>
+                    <th class="money col-rate">請求単価</th>
+                    <th class="money col-sum">請求額</th>
+                    <th class="money col-rate">支払単価</th>
+                    <th class="money col-sum">支払額</th>
+                    <th class="money col-rate">応援単価</th>
+                    <th class="money col-sum">応援額</th>
                 </tr>
                 {% for line in work_lines %}
                 <tr class="work-line" data-manual="{% if line.price_mode == 'manual' %}1{% else %}0{% endif %}">
                     <td>{{ forloop.counter }}</td>
-                    <td><input type="text" name="work_type_{{ forloop.counter }}" value="{{ line.work_type }}"></td>
+                    <td><input type="text" name="work_type_{{ forloop.counter }}" class="ime-hiragana" lang="ja" style="ime-mode: active" inputmode="text" autocomplete="off" value="{{ line.work_type }}"></td>
                     <td>
-                        <select name="work_size_{{ forloop.counter }}" id="work_size_{{ forloop.counter }}">
+                        <select name="work_size_{{ forloop.counter }}" id="work_size_{{ forloop.counter }}" class="work-size">
                             <option value="">選択してください</option>
                             {% for size in work_sizes %}
                             <option value="{{ size.id }}" {% if line.work_size == size.id|stringformat:"s" %}selected{% endif %}>{{ size.name }}</option>
                             {% endfor %}
                         </select>
                     </td>
-                    <td><input type="number" name="work_amount_{{ forloop.counter }}" value="{{ line.work_amount }}"></td>
+                    <td><input type="text" name="size_mark_{{ forloop.counter }}" class="ime-hiragana" lang="ja" maxlength="20" autocomplete="off" value="{{ line.size_mark }}"></td>
+                    <td><input type="number" class="work-amount" name="work_amount_{{ forloop.counter }}" value="{{ line.work_amount }}"></td>
                     <td><input type="text" name="remark_{{ forloop.counter }}" maxlength="255" value="{{ line.remark }}"></td>
                     <td>
                         <select name="price_mode_{{ forloop.counter }}" class="price-mode">
@@ -99,12 +105,16 @@
                             <option value="manual" {% if line.price_mode == "manual" %}selected{% endif %}>手入力</option>
                         </select>
                     </td>
-                    <td><input type="number" class="manual-amount" name="manual_billing_{{ forloop.counter }}" value="{{ line.manual_billing }}"></td>
-                    <td><input type="number" class="manual-amount" name="manual_pay_{{ forloop.counter }}" value="{{ line.manual_pay }}"></td>
-                    <td><input type="number" class="manual-amount" name="manual_ouen_{{ forloop.counter }}" value="{{ line.manual_ouen }}"></td>
+                    <td class="col-rate"><input type="number" class="rate-unit rate-billing" name="rate_billing_{{ forloop.counter }}" value="{{ line.rate_billing }}" readonly tabindex="-1"></td>
+                    <td class="col-sum"><input type="number" class="manual-amount" name="manual_billing_{{ forloop.counter }}" value="{{ line.manual_billing }}"></td>
+                    <td class="col-rate"><input type="number" class="rate-unit rate-pay" name="rate_pay_{{ forloop.counter }}" value="{{ line.rate_pay }}" readonly tabindex="-1"></td>
+                    <td class="col-sum"><input type="number" class="manual-amount" name="manual_pay_{{ forloop.counter }}" value="{{ line.manual_pay }}"></td>
+                    <td class="col-rate"><input type="number" class="rate-unit rate-ouen" name="rate_ouen_{{ forloop.counter }}" value="{{ line.rate_ouen }}" readonly tabindex="-1"></td>
+                    <td class="col-sum"><input type="number" class="manual-amount" name="manual_ouen_{{ forloop.counter }}" value="{{ line.manual_ouen }}"></td>
                 </tr>
                 {% endfor %}
             </table>
+            </div>
         </div>
 
         <button type="submit" class="save">保存して確認へ</button>
@@ -112,63 +122,127 @@
     {% include "workapp/_searchable_selects.html" %}
 
 <script>
-function fetchUnitPrice(rateType, targetId, sizeId, callback) {
+function fetchUnitPrice(rateType, targetId, sizeId) {
     if (!targetId || !sizeId) {
-        callback(null);
+        return Promise.resolve(null);
+    }
+    return fetch(`/get_unit_price/?type=${rateType}&id=${targetId}&size=${sizeId}`)
+        .then(function(response) { return response.json(); })
+        .then(function(data) { return data.unit_price; })
+        .catch(function() { return null; });
+}
+
+function setNum(input, value) {
+    if (!input) return;
+    input.value = (value === null || value === undefined || value === "") ? "" : value;
+}
+
+function lineTotal(unit, qty) {
+    if (unit === null || unit === undefined || qty === "" || qty === null) return "";
+    var n = Number(qty);
+    if (!isFinite(n)) return "";
+    return unit * n;
+}
+
+function styleAmountFields(row, manual) {
+    row.querySelectorAll(".manual-amount").forEach(function(input) {
+        input.readOnly = !manual;
+        input.classList.toggle("is-manual", !!manual);
+        input.style.background = "";
+    });
+    row.querySelectorAll(".rate-unit").forEach(function(input) {
+        input.readOnly = !manual;
+        input.tabIndex = manual ? 0 : -1;
+        input.classList.toggle("is-manual", !!manual);
+        input.style.background = "";
+    });
+}
+
+function unitFrom(input) {
+    if (!input || input.value === "") return null;
+    var n = Number(input.value);
+    return isFinite(n) ? n : null;
+}
+
+function applyTotalsFromRates(row) {
+    var amount = row.querySelector(".work-amount");
+    var qty = amount ? amount.value : "";
+    setNum(row.querySelector("[name^='manual_billing_']"), lineTotal(unitFrom(row.querySelector(".rate-billing")), qty));
+    setNum(row.querySelector("[name^='manual_pay_']"), lineTotal(unitFrom(row.querySelector(".rate-pay")), qty));
+    setNum(row.querySelector("[name^='manual_ouen_']"), lineTotal(unitFrom(row.querySelector(".rate-ouen")), qty));
+}
+
+function refreshWorkLine(row, fetchRates) {
+    if (!row) return;
+    var mode = row.querySelector(".price-mode");
+    var manual = mode && mode.value === "manual";
+    styleAmountFields(row, manual);
+    if (manual) {
+        if (fetchRates === false) applyTotalsFromRates(row);
         return;
     }
-    fetch(`/get_unit_price/?type=${rateType}&id=${targetId}&size=${sizeId}`)
-        .then(response => response.json())
-        .then(data => { callback(data.unit_price); });
-}
-
-function setupAutoPrice() {
-    const worker = document.getElementById("id_worker");
-    const company = document.getElementById("id_company");
-    const unitPriceInput = document.getElementById("id_unit_price");
-
-    for (let i = 1; i <= 15; i++) {
-        const sizeSelect = document.getElementById(`work_size_${i}`);
-        if (!sizeSelect) continue;
-        sizeSelect.addEventListener("change", () => {
-            const sizeId = sizeSelect.value;
-            const contractorId = window.billingContractorId ? window.billingContractorId() : "";
-            if (contractorId) {
-                fetchUnitPrice("contractor", contractorId, sizeId, (price) => {
-                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
-                });
-            }
-            if (worker && worker.value) {
-                fetchUnitPrice("worker", worker.value, sizeId, (price) => {
-                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
-                });
-            }
-            if (company && company.value) {
-                fetchUnitPrice("company", company.value, sizeId, (price) => {
-                    if (price !== null && unitPriceInput) unitPriceInput.value = price;
-                });
-            }
-        });
+    if (fetchRates === false) {
+        applyTotalsFromRates(row);
+        return;
     }
-}
-document.addEventListener("DOMContentLoaded", function() {
-    setupAutoPrice();
-    document.querySelectorAll(".price-mode").forEach(function(sel) {
-        sel.addEventListener("change", syncManualAmounts);
-    });
-    syncManualAmounts();
-});
 
-function syncManualAmounts() {
-    document.querySelectorAll("tr.work-line").forEach(function(row) {
-        var mode = row.querySelector(".price-mode");
-        var manual = mode && mode.value === "manual";
-        row.querySelectorAll(".manual-amount").forEach(function(input) {
-            input.readOnly = !manual;
-            input.style.background = manual ? "#fff" : "#eee";
+    var size = row.querySelector(".work-size");
+    var amount = row.querySelector(".work-amount");
+    var sizeId = size ? size.value : "";
+    var billingId = window.billingContractorId ? window.billingContractorId() : "";
+    var worker = document.getElementById("id_worker");
+    var company = document.getElementById("id_company");
+    var workerId = worker ? worker.value : "";
+    var companyId = company ? company.value : "";
+
+    if (!sizeId) {
+        setNum(row.querySelector(".rate-billing"), "");
+        setNum(row.querySelector(".rate-pay"), "");
+        setNum(row.querySelector(".rate-ouen"), "");
+        setNum(row.querySelector("[name^='manual_billing_']"), "");
+        setNum(row.querySelector("[name^='manual_pay_']"), "");
+        setNum(row.querySelector("[name^='manual_ouen_']"), "");
+        return;
+    }
+
+    Promise.all([
+        fetchUnitPrice("contractor", billingId, sizeId),
+        fetchUnitPrice("worker", workerId, sizeId),
+        fetchUnitPrice("company", companyId, sizeId)
+    ]).then(function(prices) {
+        if (!row.querySelector(".price-mode") || row.querySelector(".price-mode").value === "manual") return;
+        var currentQty = amount ? amount.value : "";
+        setNum(row.querySelector(".rate-billing"), prices[0]);
+        setNum(row.querySelector(".rate-pay"), prices[1]);
+        setNum(row.querySelector(".rate-ouen"), prices[2]);
+        setNum(row.querySelector("[name^='manual_billing_']"), lineTotal(prices[0], currentQty));
+        setNum(row.querySelector("[name^='manual_pay_']"), lineTotal(prices[1], currentQty));
+        setNum(row.querySelector("[name^='manual_ouen_']"), lineTotal(prices[2], currentQty));
+    });
+}
+
+function refreshWorkLinePrices() {
+    document.querySelectorAll("tr.work-line").forEach(refreshWorkLine);
+}
+
+window.refreshWorkLinePrices = refreshWorkLinePrices;
+
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll(".price-mode, .work-size").forEach(function(el) {
+        el.addEventListener("change", function() {
+            refreshWorkLine(el.closest("tr.work-line"));
         });
     });
-}
+    document.querySelectorAll(".work-amount, .rate-unit").forEach(function(el) {
+        el.addEventListener("input", function() {
+            refreshWorkLine(el.closest("tr.work-line"), false);
+        });
+    });
+    if (window.jQuery) {
+        jQuery("#id_worker, #id_company, #id_primary_company, #id_site").on("change", refreshWorkLinePrices);
+    }
+    refreshWorkLinePrices();
+});
 </script>
 </body>
 </html>

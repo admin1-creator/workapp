@@ -7,15 +7,17 @@
         {% endfor %}
         <input type="hidden" name="kagami" value="1">
         <p class="app-name">請求支払い入力</p>
-        <h1>鑑（支払）</h1>
-        {% include "workapp/_print_parties.html" %}
-        {% if from_date and to_date %}
-        <p class="meta">対象期間：{{ from_date }} 〜 {{ to_date }}{% if selected_name %} ／ {{ selected_name }}{% endif %}</p>
+        <h1>支払書</h1>
+        {% include "workapp/_print_parties.html" with payment_lead="下記の通りお支払いいたします。" %}
+        {% if kagami_pay_month %}
+        <p class="meta">{{ kagami_pay_month }}</p>
         {% elif record %}
         <p class="meta">伝票番号：{{ record.voucher_no }} ／ 日付：{{ record.date|short_date }}</p>
         {% endif %}
         {% include "workapp/_print_tax_block.html" with show_tax_block=True pay_total=kagami_pay_total pay_tax=kagami_pay_tax pay_tax_included=kagami_pay_tax_included %}
         <table class="kagami-table">
+            <col class="kagami-item">
+            <col class="kagami-yen">
             <tr>
                 <th>項目</th>
                 <th>金額</th>
@@ -30,8 +32,8 @@
                     <input type="text" name="kagami_item_{{ forloop.counter }}" value="{{ line.item }}" autocomplete="off">
                     {% endif %}
                 </td>
-                <td class="yen">
-                    <input type="text" name="kagami_amount_{{ forloop.counter }}" value="{% if line.amount is not None %}{{ line.amount }}{% endif %}" inputmode="numeric" autocomplete="off" data-kagami-amount>
+                <td class="yen{% if line.amount is not None and line.amount < 0 %} minus{% endif %}">
+                    <input type="text" name="kagami_amount_{{ forloop.counter }}" value="{% if line.amount is not None %}{{ line.amount|comma_num }}{% endif %}" inputmode="numeric" autocomplete="off" data-kagami-amount>
                 </td>
             </tr>
             {% endfor %}
@@ -40,7 +42,7 @@
                 <td class="yen kagami-sum-value">{{ kagami_pay_total }}</td>
             </tr>
         </table>
-        <p class="kagami-note screen-only">1行目の売上は支払合計です。下の行は手入力できます。税込合計は鑑の合計＋10％です。「鑑を保存」で内容を残します。</p>
-        <p class="no-print"><button type="submit" name="action" value="save_kagami">鑑を保存</button></p>
+        <p class="kagami-note screen-only">1行目の売上は支払合計です。下の行は手入力できます。税込合計は支払書の合計＋10％です。「支払書を保存」で内容を残します。</p>
+        <p class="no-print"><button type="submit" name="action" value="save_kagami">支払書を保存</button></p>
         </form>
     </section>

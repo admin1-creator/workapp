@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from datetime import date, datetime
+from math import floor
 from urllib.parse import urlencode
 
 from django.contrib.auth import logout
@@ -145,9 +146,14 @@ def _temoto_allocation_from_data(data):
 
 
 def _amount_at_percent(amount, percent):
-    if amount is None:
+    """本体 × ％ ÷ 100。小数点以下は切り捨て（floor）。四捨五入しない。"""
+    if amount is None or amount == "":
         return None
-    return amount * int(percent or 0) // 100
+    try:
+        base = float(amount)
+    except (TypeError, ValueError):
+        return None
+    return int(floor(base * int(percent or 0) / 100))
 
 
 def _temoto_line_amounts(line_total, allocation):
@@ -157,7 +163,7 @@ def _temoto_line_amounts(line_total, allocation):
     if line_total is None:
         return [None] * count
     if allocation.get("split_pool"):
-        pool = line_total * allocation["temoto_pool"] // 100
+        pool = _amount_at_percent(line_total, allocation["temoto_pool"])
         amounts = []
         for index in range(count):
             if index == count - 1:
@@ -176,17 +182,23 @@ def _with_temoto_deduction(work_rows, allocation):
     helper_count = allocation["count"] if allocation else 0
     percent = _shokunin_deduction_percent(helper_count)
 
+    deduction = 0
     if percent:
         for row in work_rows:
             line_total = row["line_total"]
-            row["total_price"] = _amount_at_percent(line_total, 100 - percent)
+            if line_total is None:
+                row["total_price"] = None
+                continue
+            cut = _amount_at_percent(line_total, percent)
+            deduction += cut
+            row["total_price"] = line_total - cut
 
     total = sum(row["total_price"] or 0 for row in work_rows)
     allocation = allocation or _temoto_allocation([])
     return {
         "subtotal": subtotal,
         "deduction_percent": percent,
-        "deduction": subtotal - total,
+        "deduction": deduction,
         "total": total,
         "helper_count": allocation["count"],
         "temoto_pool_percent": allocation["temoto_pool"],
@@ -267,15 +279,102 @@ def _parse_int(value):
         return None
 
 
+def _posted_line_has_work(wt, ws, wa, note, mark, billing, pay, ouen, rate_b=None, rate_p=None, rate_o=None):
+    if (wt or "").strip():
+        return True
+    if (ws or "").strip():
+        return True
+    if _parse_int(wa) is not None:
+        return True
+    if (note or "").strip():
+        return True
+    if (mark or "").strip():
+        return True
+    return any(value is not None for value in (billing, pay, ouen, rate_b, rate_p, rate_o))
+
+
+def _collect_posted_work_lines(post):
+    work_types = []
+    work_sizes = []
+    work_amounts = []
+    remarks = []
+    size_marks = []
+    price_modes = []
+    manual_billings = []
+    manual_pays = []
+    manual_ouens = []
+    rate_billings = []
+    rate_pays = []
+    rate_ouens = []
+    manual_missing = False
+    type_missing = False
+    prev_type = ""
+    for i in range(1, 16):
+        wt = (post.get(f"work_type_{i}") or "").strip()
+        ws = post.get(f"work_size_{i}") or ""
+        wa = post.get(f"work_amount_{i}")
+        note = (post.get(f"remark_{i}") or "").strip()
+        mark = (post.get(f"size_mark_{i}") or "").strip()
+        mode = (post.get(f"price_mode_{i}") or "master").strip()
+        billing = _parse_int(post.get(f"manual_billing_{i}"))
+        pay = _parse_int(post.get(f"manual_pay_{i}"))
+        ouen = _parse_int(post.get(f"manual_ouen_{i}"))
+        rate_b = _parse_int(post.get(f"rate_billing_{i}"))
+        rate_p = _parse_int(post.get(f"rate_pay_{i}"))
+        rate_o = _parse_int(post.get(f"rate_ouen_{i}"))
+        if not _posted_line_has_work(wt, ws, wa, note, mark, billing, pay, ouen, rate_b, rate_p, rate_o):
+            continue
+        if not wt:
+            wt = prev_type
+        if not wt:
+            type_missing = True
+            continue
+        prev_type = wt
+        if mode == "manual" and billing is None and pay is None and ouen is None and rate_b is None and rate_p is None and rate_o is None:
+            manual_missing = True
+        work_types.append(wt)
+        work_sizes.append(ws)
+        work_amounts.append(_parse_int(wa))
+        remarks.append(note)
+        size_marks.append(mark)
+        price_modes.append("manual" if mode == "manual" else "master")
+        manual_billings.append(billing)
+        manual_pays.append(pay)
+        manual_ouens.append(ouen)
+        rate_billings.append(rate_b)
+        rate_pays.append(rate_p)
+        rate_ouens.append(rate_o)
+    return {
+        "work_types": work_types,
+        "work_sizes": work_sizes,
+        "work_amounts": work_amounts,
+        "remarks": remarks,
+        "size_marks": size_marks,
+        "price_modes": price_modes,
+        "manual_billings": manual_billings,
+        "manual_pays": manual_pays,
+        "manual_ouens": manual_ouens,
+        "rate_billings": rate_billings,
+        "rate_pays": rate_pays,
+        "rate_ouens": rate_ouens,
+        "manual_missing": manual_missing,
+        "type_missing": type_missing,
+    }
+
+
 def _iter_work_lines(data):
     types = data.get("work_types") or []
     sizes = data.get("work_sizes") or []
     amounts = data.get("work_amounts") or []
     remarks = data.get("remarks") or []
+    size_marks = data.get("size_marks") or []
     modes = data.get("price_modes") or []
     billings = data.get("manual_billings") or []
     pays = data.get("manual_pays") or []
     ouens = data.get("manual_ouens") or []
+    rate_billings = data.get("rate_billings") or []
+    rate_pays = data.get("rate_pays") or []
+    rate_ouens = data.get("rate_ouens") or []
     for i, work_type in enumerate(types):
         mode = str(modes[i] if i < len(modes) else "master").strip() or "master"
         yield {
@@ -283,10 +382,14 @@ def _iter_work_lines(data):
             "size": sizes[i] if i < len(sizes) else "",
             "amount": amounts[i] if i < len(amounts) else None,
             "remark": (remarks[i] if i < len(remarks) else "") or "",
+            "size_mark": (size_marks[i] if i < len(size_marks) else "") or "",
             "price_mode": "manual" if mode == "manual" else "master",
             "manual_billing": _parse_int(billings[i] if i < len(billings) else None),
             "manual_pay": _parse_int(pays[i] if i < len(pays) else None),
             "manual_ouen": _parse_int(ouens[i] if i < len(ouens) else None),
+            "rate_billing": _parse_int(rate_billings[i] if i < len(rate_billings) else None),
+            "rate_pay": _parse_int(rate_pays[i] if i < len(rate_pays) else None),
+            "rate_ouen": _parse_int(rate_ouens[i] if i < len(rate_ouens) else None),
         }
 
 
@@ -297,18 +400,27 @@ def _line_base(line):
         "size": size_name,
         "amount": line["amount"],
         "remark": line["remark"],
+        "size_mark": line.get("size_mark") or "",
         "price_mode": line["price_mode"],
         "manual_billing": line["manual_billing"],
         "manual_pay": line["manual_pay"],
         "manual_ouen": line["manual_ouen"],
+        "rate_billing": line.get("rate_billing"),
+        "rate_pay": line.get("rate_pay"),
+        "rate_ouen": line.get("rate_ouen"),
     }
 
 
-def _priced_work_row(line, master_unit, manual_amount):
+def _priced_work_row(line, master_unit, manual_amount, manual_unit=None):
     size_obj, row = _line_base(line)
     if row["price_mode"] == "manual":
-        row["unit_price"] = None
-        row["total_price"] = 0 if manual_amount is None else manual_amount
+        row["unit_price"] = manual_unit
+        if manual_amount is not None:
+            row["total_price"] = manual_amount
+        else:
+            row["total_price"] = _safe_mul(manual_unit, row["amount"])
+            if row["total_price"] is None:
+                row["total_price"] = 0
         return size_obj, row
     row["unit_price"] = master_unit
     row["total_price"] = _safe_mul(master_unit, row["amount"])
@@ -407,7 +519,7 @@ def _record_snapshot(record):
     keys = [
         "voucher_no", "date", "site", "general_contractor", "primary_company",
         "billing_contractor", "worker", "company",
-        "work_type", "work_size", "dimension", "work_amount", "remark",
+        "work_type", "work_size", "dimension", "work_amount", "remark", "size_mark",
         "helpers", "helper_count", "temoto1", "temoto2", "temoto3",
         "temoto_percent", "shokunin_deduction_percent", "unit_price", "total_price",
         "price_mode", "manual_billing", "manual_pay", "manual_ouen",
@@ -481,6 +593,7 @@ def _row_save_fields(row, total_price=None):
         "dimension": row["size"] or None,
         "work_amount": row["amount"],
         "remark": row.get("remark") or "",
+        "size_mark": row.get("size_mark") or "",
         "unit_price": row["unit_price"],
         "total_price": row["total_price"] if total_price is None else total_price,
         "price_mode": row.get("price_mode") or "master",
@@ -664,6 +777,7 @@ def _display_input_lines(data):
             "work_size": size_name,
             "work_amount": line["amount"],
             "remark": line["remark"],
+            "size_mark": line.get("size_mark") or "",
             "price_mode": line["price_mode"],
         })
     return lines
@@ -700,6 +814,23 @@ def _basic_record_from_voucher(record):
     return _basic_record_from_records(records)
 
 
+def _record_line_key(record):
+    return (
+        record.work_type or "",
+        record.work_size or record.dimension or "",
+        record.work_amount,
+        record.remark or "",
+        getattr(record, "size_mark", "") or "",
+    )
+
+
+def _unit_price_for_role(records, labels, key):
+    for record in records:
+        if (record.worker or "").strip() in labels and _record_line_key(record) == key:
+            return getattr(record, "unit_price", None)
+    return None
+
+
 def _basic_record_from_records(records):
     first = records[0]
     shokunin = next(
@@ -724,17 +855,16 @@ def _basic_record_from_records(records):
     work_sizes = []
     work_amounts = []
     remarks = []
+    size_marks = []
     price_modes = []
     manual_billings = []
     manual_pays = []
     manual_ouens = []
+    rate_billings = []
+    rate_pays = []
+    rate_ouens = []
     for record in source:
-        key = (
-            record.work_type or "",
-            record.work_size or record.dimension or "",
-            record.work_amount,
-            record.remark or "",
-        )
+        key = _record_line_key(record)
         if key in seen:
             continue
         seen.add(key)
@@ -746,16 +876,21 @@ def _basic_record_from_records(records):
             "work_size": size_name,
             "work_amount": record.work_amount,
             "remark": record.remark,
+            "size_mark": getattr(record, "size_mark", "") or "",
             "price_mode": mode,
         })
         work_types.append(record.work_type or "")
         work_sizes.append(str(size_obj.pk) if size_obj else "")
         work_amounts.append(record.work_amount)
         remarks.append(record.remark or "")
+        size_marks.append(getattr(record, "size_mark", "") or "")
         price_modes.append(mode)
         manual_billings.append(getattr(record, "manual_billing", None))
         manual_pays.append(getattr(record, "manual_pay", None))
         manual_ouens.append(getattr(record, "manual_ouen", None))
+        rate_billings.append(_unit_price_for_role(records, ("元請", "moto"), key))
+        rate_pays.append(_unit_price_for_role(records, ("職人", "shokunin"), key))
+        rate_ouens.append(_unit_price_for_role(records, ("応援", "ouen"), key))
     worker_name = (shokunin.helpers if shokunin else first.helpers) or ""
     worker = Worker.objects.filter(name=worker_name).first() if worker_name else None
     site = Site.objects.filter(name=first.site).first() if first.site else None
@@ -791,10 +926,14 @@ def _basic_record_from_records(records):
         "work_sizes": work_sizes,
         "work_amounts": work_amounts,
         "remarks": remarks,
+        "size_marks": size_marks,
         "price_modes": price_modes,
         "manual_billings": manual_billings,
         "manual_pays": manual_pays,
         "manual_ouens": manual_ouens,
+        "rate_billings": rate_billings,
+        "rate_pays": rate_pays,
+        "rate_ouens": rate_ouens,
         "helper": "、".join([n for n in (first.temoto1, first.temoto2, first.temoto3) if n]),
         "helper_count": len([n for n in (first.temoto1, first.temoto2, first.temoto3) if n]),
     }
@@ -852,7 +991,7 @@ def _moto_work_rows(data):
             ).first()
             if rate:
                 unit_price = rate.unit_price
-        _size, row = _priced_work_row(line, unit_price, line["manual_billing"])
+        _size, row = _priced_work_row(line, unit_price, line["manual_billing"], line.get("rate_billing"))
         work_rows.append(row)
     allocation = _temoto_allocation_from_data(data)
     totals = _sum_line_totals(work_rows, allocation)
@@ -864,7 +1003,7 @@ def _shokunin_work_rows(data, worker):
     for line in _iter_work_lines(data):
         size_obj, _row = _line_base(line)
         unit_price = _worker_unit_price(worker, size_obj) if worker else None
-        _size, row = _priced_work_row(line, unit_price, line["manual_pay"])
+        _size, row = _priced_work_row(line, unit_price, line["manual_pay"], line.get("rate_pay"))
         work_rows.append(row)
     allocation = _temoto_allocation_from_data(data)
     totals = _with_temoto_deduction(work_rows, allocation)
@@ -881,7 +1020,7 @@ def _temoto_work_rows(data, worker):
     for line in _iter_work_lines(data):
         size_obj, _row = _line_base(line)
         unit_price = _worker_unit_price(worker, size_obj) if worker else None
-        _size, priced = _priced_work_row(line, unit_price, line["manual_pay"])
+        _size, priced = _priced_work_row(line, unit_price, line["manual_pay"], line.get("rate_pay"))
         shokunin_total = priced["total_price"]
         person_amounts = _temoto_line_amounts(shokunin_total, allocation)
         work_rows.append({
@@ -928,7 +1067,7 @@ def _ouen_work_rows(data):
             rate = CompanyRate.objects.filter(company=company, work_size=size_obj).first()
             if rate:
                 unit_price = rate.unit_price
-        _size, row = _priced_work_row(line, unit_price, line["manual_ouen"])
+        _size, row = _priced_work_row(line, unit_price, line["manual_ouen"], line.get("rate_ouen"))
         work_rows.append(row)
     allocation = _temoto_allocation_from_data(data)
     totals = _sum_line_totals(work_rows, allocation)
@@ -975,6 +1114,7 @@ def _build_review_sections(data):
                 "size": row["size"],
                 "amount": row["amount"],
                 "remark": row.get("remark") or "",
+                "size_mark": row.get("size_mark") or "",
                 "helper": share["name"],
                 "percent": share["percent"],
                 "unit_price": row["unit_price"],
@@ -1034,25 +1174,36 @@ def _work_lines_from_session(data):
     sizes = data.get("work_sizes") or []
     amounts = data.get("work_amounts") or []
     remarks = data.get("remarks") or []
+    size_marks = data.get("size_marks") or []
     modes = data.get("price_modes") or []
     billings = data.get("manual_billings") or []
     pays = data.get("manual_pays") or []
     ouens = data.get("manual_ouens") or []
+    rate_billings = data.get("rate_billings") or []
+    rate_pays = data.get("rate_pays") or []
+    rate_ouens = data.get("rate_ouens") or []
     lines = []
     for i in range(15):
         amount = amounts[i] if i < len(amounts) else ""
         billing = billings[i] if i < len(billings) else ""
         pay = pays[i] if i < len(pays) else ""
         ouen = ouens[i] if i < len(ouens) else ""
+        rate_b = rate_billings[i] if i < len(rate_billings) else ""
+        rate_p = rate_pays[i] if i < len(rate_pays) else ""
+        rate_o = rate_ouens[i] if i < len(rate_ouens) else ""
         lines.append({
             "work_type": types[i] if i < len(types) else "",
             "work_size": str(sizes[i]) if i < len(sizes) and sizes[i] not in (None, "") else "",
             "work_amount": "" if amount in (None, "") else amount,
             "remark": remarks[i] if i < len(remarks) else "",
+            "size_mark": size_marks[i] if i < len(size_marks) else "",
             "price_mode": modes[i] if i < len(modes) else "master",
             "manual_billing": "" if billing in (None, "") else billing,
             "manual_pay": "" if pay in (None, "") else pay,
             "manual_ouen": "" if ouen in (None, "") else ouen,
+            "rate_billing": "" if rate_b in (None, "") else rate_b,
+            "rate_pay": "" if rate_p in (None, "") else rate_p,
+            "rate_ouen": "" if rate_o in (None, "") else rate_o,
         })
     return lines
 
@@ -1227,10 +1378,14 @@ def workrecord_create(request):
                 "work_size": request.POST.get(f"work_size_{i}") or "",
                 "work_amount": request.POST.get(f"work_amount_{i}") or "",
                 "remark": request.POST.get(f"remark_{i}") or "",
+                "size_mark": request.POST.get(f"size_mark_{i}") or "",
                 "price_mode": request.POST.get(f"price_mode_{i}") or "master",
                 "manual_billing": request.POST.get(f"manual_billing_{i}") or "",
                 "manual_pay": request.POST.get(f"manual_pay_{i}") or "",
                 "manual_ouen": request.POST.get(f"manual_ouen_{i}") or "",
+                "rate_billing": request.POST.get(f"rate_billing_{i}") or "",
+                "rate_pay": request.POST.get(f"rate_pay_{i}") or "",
+                "rate_ouen": request.POST.get(f"rate_ouen_{i}") or "",
             })
 
         if form.is_valid():
@@ -1249,43 +1404,24 @@ def workrecord_create(request):
             primary_obj = form.cleaned_data.get("primary_company")
 
             # 15行分の作業種類・作業量をまとめて取得
-            work_types = []
-            work_sizes = []
-            work_amounts = []
-            remarks = []
-            price_modes = []
-            manual_billings = []
-            manual_pays = []
-            manual_ouens = []
-            manual_missing = False
+            posted_lines = _collect_posted_work_lines(request.POST)
+            work_types = posted_lines["work_types"]
+            work_sizes = posted_lines["work_sizes"]
+            work_amounts = posted_lines["work_amounts"]
+            remarks = posted_lines["remarks"]
+            size_marks = posted_lines["size_marks"]
+            price_modes = posted_lines["price_modes"]
+            manual_billings = posted_lines["manual_billings"]
+            manual_pays = posted_lines["manual_pays"]
+            manual_ouens = posted_lines["manual_ouens"]
+            rate_billings = posted_lines["rate_billings"]
+            rate_pays = posted_lines["rate_pays"]
+            rate_ouens = posted_lines["rate_ouens"]
 
-            for i in range(1, 16):  # 1〜15行
-                wt = request.POST.get(f'work_type_{i}')
-                ws = request.POST.get(f'work_size_{i}')
-                wa = request.POST.get(f'work_amount_{i}')
-                note = (request.POST.get(f'remark_{i}') or "").strip()
-                mode = (request.POST.get(f'price_mode_{i}') or "master").strip()
-                billing = _parse_int(request.POST.get(f'manual_billing_{i}'))
-                pay = _parse_int(request.POST.get(f'manual_pay_{i}'))
-                ouen = _parse_int(request.POST.get(f'manual_ouen_{i}'))
-
-                # 入力がある行だけ保存する（寸法・作業量は空欄可）
-                if wt:
-                    if mode == "manual" and billing is None and pay is None and ouen is None:
-                        manual_missing = True
-                    work_types.append(wt)
-                    work_sizes.append(ws or "")
-                    work_amounts.append(_parse_int(wa))
-                    remarks.append(note)
-                    price_modes.append("manual" if mode == "manual" else "master")
-                    manual_billings.append(billing)
-                    manual_pays.append(pay)
-                    manual_ouens.append(ouen)
-
-            if not work_types:
+            if posted_lines["type_missing"] or not work_types:
                 form.add_error(None, "作業内容を1行以上入力してください。")
-            elif manual_missing:
-                form.add_error(None, "手入力の行は、請求額・支払額・応援額のいずれかを入力してください。")
+            elif posted_lines["manual_missing"]:
+                form.add_error(None, "手入力の行は、単価か金額のいずれかを入力してください。")
             else:
                 request.session['basic_record'] = {
                     'voucher_no': voucher_no,
@@ -1313,10 +1449,14 @@ def workrecord_create(request):
                     'work_sizes': work_sizes,
                     'work_amounts': work_amounts,
                     'remarks': remarks,
+                    'size_marks': size_marks,
                     'price_modes': price_modes,
                     'manual_billings': manual_billings,
                     'manual_pays': manual_pays,
                     'manual_ouens': manual_ouens,
+                    'rate_billings': rate_billings,
+                    'rate_pays': rate_pays,
+                    'rate_ouens': rate_ouens,
                 }
                 existing_ids = _voucher_existing_ids(voucher_no)
                 if existing_ids:
@@ -1514,11 +1654,49 @@ LIST_FILTER_KEYS = ("kind", "moto_company", "worker_id", "temoto_id", "company_i
 
 DOCUMENT_TITLES = {
     "moto": "請求書",
-    "worker": "支払書",
-    "shokunin": "支払書",
-    "temoto": "支払書",
-    "ouen": "支払書（応援）",
+    "worker": "支払明細",
+    "shokunin": "支払明細",
+    "temoto": "支払明細",
+    "ouen": "支払明細（応援）",
 }
+
+
+def _print_text(record, key):
+    if isinstance(record, dict):
+        value = record.get(key)
+    else:
+        value = getattr(record, key, None)
+    return str(value or "").strip()
+
+
+def _print_site_key(record):
+    site = _print_text(record, "site")
+    gc = _print_text(record, "general_contractor")
+    if site and gc:
+        return f"{site}（{gc}）"
+    return site or gc
+
+
+def _print_upper_key(record):
+    return _print_text(record, "primary_company") or _print_text(record, "general_contractor")
+
+
+def _annotate_print_repeats(records):
+    prev = None
+    for rec in records:
+        voucher = _print_text(rec, "voucher_no")
+        rec_date = getattr(rec, "date", None)
+        site = _print_site_key(rec)
+        upper = _print_upper_key(rec)
+        work = _print_text(rec, "work_type")
+        same_voucher = bool(prev is not None and voucher and voucher == prev[0])
+        rec.print_show_voucher = not same_voucher
+        rec.print_show_date = not (same_voucher and rec_date == prev[1])
+        rec.print_show_site = not (same_voucher and site == prev[2])
+        rec.print_show_upper = not (same_voucher and upper == prev[3])
+        rec.print_show_work = not (same_voucher and work == prev[4])
+        prev = (voucher, rec_date, site, upper, work)
+    return records
 
 
 def _print_party_context(kind, party_name=""):
@@ -1532,14 +1710,30 @@ def _print_party_context(kind, party_name=""):
 
 
 def _wants_kagami(src, kind):
-    if kind == "moto":
+    if kind in ("moto", "ouen"):
         return False
     return str((src or {}).get("kagami") or "").strip() in ("1", "on", "true")
 
 
+def _next_month_end_label(end_date):
+    if end_date in (None, ""):
+        return ""
+    if isinstance(end_date, str):
+        try:
+            end_date = datetime.strptime(end_date[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return ""
+    month = end_date.month + 1
+    year = end_date.year
+    if month == 13:
+        month = 1
+        year += 1
+    return f"{year}年{month}月末"
+
+
 def _pay_tax_context(kind, total):
     base = int(total or 0)
-    tax = base * 10 // 100
+    tax = _amount_at_percent(base, 10)
     return {
         "show_tax_block": True,
         "pay_total_num": base,
@@ -1549,7 +1743,7 @@ def _pay_tax_context(kind, total):
     }
 
 
-KAGAMI_LINE_COUNT = 6
+KAGAMI_LINE_COUNT = 10
 
 
 def _parse_kagami_amount(value):
@@ -1691,7 +1885,7 @@ def _redirect_to_list(request):
 
 SNAPSHOT_FIELDS = (
     "id", "voucher_no", "date", "site", "work_type", "work_size", "dimension",
-    "work_amount", "remark", "general_contractor", "primary_company",
+    "work_amount", "remark", "size_mark", "general_contractor", "primary_company",
     "billing_contractor", "worker", "company",
     "helpers", "temoto1", "temoto2", "temoto3", "helper_count",
     "temoto_percent", "shokunin_deduction_percent", "unit_price", "total_price",
@@ -1772,6 +1966,10 @@ def _collapse_helper_rows_by_voucher(records):
         buckets.setdefault(key, []).append(rec)
     ordered = []
     for bucket in buckets.values():
+        bucket.sort(key=lambda rec: (
+            getattr(rec, "date", None) or date.min,
+            getattr(rec, "id", 0) or 0,
+        ))
         label = ""
         total = 0
         has_helper = False
@@ -2335,6 +2533,7 @@ def workrecord_print(request, pk):
         print_records = _collapse_helper_rows_by_voucher(print_records)
     elif worker_type == "temoto":
         print_records = _collapse_temoto_rows_by_voucher(print_records)
+    print_records = _annotate_print_repeats(print_records)
     print_total = sum(r.total_price or 0 for r in print_records)
     party_name = _single_print_party_name(worker_type, record, worker_id)
     show_kagami = _wants_kagami(src, worker_type)
@@ -2361,6 +2560,7 @@ def workrecord_print(request, pk):
             "company_id": src.get("company_id", "").strip(),
         },
         **_kagami_context(kagami_scope, print_total),
+        "kagami_pay_month": _next_month_end_label(getattr(record, "date", None)),
         **_print_party_context(worker_type, party_name),
         **_pay_tax_context(worker_type, print_total),
     })
@@ -2514,6 +2714,7 @@ def workrecord_print_period(request):
             records = _collapse_helper_rows_by_voucher(records)
         elif kind == "temoto":
             records = _collapse_temoto_rows_by_voucher(records)
+        records = _annotate_print_repeats(records)
 
     is_moto = kind == "moto"
     is_worker = kind == "worker"
@@ -2572,6 +2773,7 @@ def workrecord_print_period(request):
             "temoto_id": temoto_id,
             "company_id": company_id,
         },
+        "kagami_pay_month": _next_month_end_label(to_date or to_date_str),
         **_kagami_context(
             _kagami_period_scope(kind, worker_id, company_id, from_date_str, to_date_str),
             total_sum,
