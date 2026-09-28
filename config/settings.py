@@ -91,8 +91,12 @@ if os.environ.get("DATABASE_URL"):
     DATABASES = {
         "default": dj_database_url.config(
             conn_max_age=600,
+            conn_health_checks=True,
         )
     }
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")
+    DATABASES["default"]["OPTIONS"]["connect_timeout"] = 10
 else:
     DATABASES = {
         "default": {
