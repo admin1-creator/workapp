@@ -95,8 +95,8 @@ if os.environ.get("DATABASE_URL"):
         )
     }
     DATABASES["default"].setdefault("OPTIONS", {})
-    DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")
-    DATABASES["default"]["OPTIONS"]["connect_timeout"] = 10
+    DATABASES["default"]["OPTIONS"]["sslmode"] = "disable"
+    DATABASES["default"]["OPTIONS"]["connect_timeout"] = 5
 else:
     DATABASES = {
         "default": {
@@ -136,6 +136,9 @@ USE_TZ = True
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
+
+# ログイン画面の表示でデータベース接続を待たない
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
 
 # 請求書・支払書・鑑に出す自社（発行者）
 ISSUER_NAME = "株式会社　自社"
