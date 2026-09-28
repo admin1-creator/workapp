@@ -10,7 +10,7 @@ services:
     name: workapp
     runtime: python
     buildCommand: "./build.sh"
-    startCommand: "python -m gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker"
+    startCommand: "python -m gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -19,4 +19,4 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: WEB_CONCURRENCY
-        value: 2
+        value: 1
