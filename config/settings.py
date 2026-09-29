@@ -95,7 +95,7 @@ if os.environ.get("DATABASE_URL"):
         )
     }
     DATABASES["default"].setdefault("OPTIONS", {})
-    DATABASES["default"]["OPTIONS"]["sslmode"] = "disable"
+    DATABASES["default"]["OPTIONS"]["sslmode"] = "require"
     DATABASES["default"]["OPTIONS"]["connect_timeout"] = 5
 else:
     DATABASES = {
