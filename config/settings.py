@@ -137,6 +137,9 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
+# 新規登録に必要な招待コード。未設定のときは誰も登録できない。
+SIGNUP_INVITE_CODE = os.environ.get("SIGNUP_INVITE_CODE", "")
+
 # ログイン画面の表示でデータベース接続を待たない
 SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
 

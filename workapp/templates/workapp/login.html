@@ -52,8 +52,11 @@
         {% if form.password.errors %}<div class="error">{{ form.password.errors }}</div>{% endif %}
         <button type="submit">ログイン</button>
     </form>
+    {% if request.GET.signed_up %}
+    <p class="sub">登録しました。ユーザー名とパスワードでログインしてください。</p>
+    {% endif %}
     <p class="sub" style="margin-top: 24px; font-size: 13px;">
-        初めて使う場合は、管理者でユーザーを作成してください（管理画面 /admin/）。
+        アカウントがない場合は <a href="{% url 'signup' %}">新規登録</a> してください。招待コードが必要です。
     </p>
 </body>
 </html>

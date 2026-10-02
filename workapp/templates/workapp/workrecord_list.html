@@ -98,10 +98,10 @@
                     {% else %}
                     |
                     <a href="{% url 'workrecord_edit' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">編集</a> |
-                    <a href="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}"
-                       onclick="return confirm('この伝票をすべて削除しますか？');">
-                       削除
-                    </a>
+                    <form method="post" action="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}" style="display:inline" onsubmit="return confirm('この伝票をすべて削除しますか？');">
+                        {% csrf_token %}
+                        <button type="submit">削除</button>
+                    </form>
                     {% endif %}
                     {% endif %}
                 </td>
@@ -164,10 +164,10 @@
                     {% else %}
                     |
                     <a href="{% url 'workrecord_edit' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}">編集</a> |
-                    <a href="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}"
-                       onclick="return confirm('この伝票をすべて削除しますか？');">
-                       削除
-                    </a>
+                    <form method="post" action="{% url 'workrecord_delete' record.id %}?kind={{ kind }}&moto_company={{ moto_company }}&worker_id={{ worker_id }}&temoto_id={{ temoto_id }}&company_id={{ company_id }}" style="display:inline" onsubmit="return confirm('この伝票をすべて削除しますか？');">
+                        {% csrf_token %}
+                        <button type="submit">削除</button>
+                    </form>
                     {% endif %}
                     {% endif %}
                 </td>

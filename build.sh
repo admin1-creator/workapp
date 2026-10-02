@@ -31,3 +31,7 @@ else:
     print("Superuser created successfully.")
 PY
 fi
+
+if [ "$DEMO_SEED" = "1" ]; then
+  python manage.py seed_demo_data
+fi

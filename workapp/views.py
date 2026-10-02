@@ -7,6 +7,7 @@ from django.contrib.auth import logout
 from django.db.models import Q
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 from .models import (
     GeneralContractorRate,
     GeneralContractor,
@@ -22,23 +23,41 @@ from .models import (
     PrintedDocumentItem,
     KagamiSheet,
 )
-from .forms import WorkRecordForm
+from .constants import (
+    CONSUMPTION_TAX_PERCENT,
+    HELPER_FIELDS,
+    MAX_HELPER_COUNT,
+    MAX_WORK_LINES,
+    MULTI_HELPER_DEDUCTION_PERCENT,
+    ONE_HELPER_DEDUCTION_PERCENT,
+    PERCENT_SCALE,
+)
+from .forms import SignupForm, WorkRecordForm
 
 
-
-
-MOTO_UNIT = 20000
-TEMOTO_UNIT = 15000
 OUEN_UNIT = 16000
 
 # 手元人数ごとの割合（職人合計に対する％）
-# 1人: 職人-35% / 手元+35%
-# 2人: 職人-40% / 手元+20%ずつ
-# 3人: 職人-40% / 手元は40%を3人で分割
+# 1人: 職人から ONE_HELPER_DEDUCTION_PERCENT を引き、手元へ同率
+# 2人: 職人から MULTI_HELPER_DEDUCTION_PERCENT を引き、手元は 20% ずつ
+# 3人: 職人から MULTI_HELPER_DEDUCTION_PERCENT を引き、手元はその合計を人数で分割
+TWO_HELPER_EACH_PERCENT = 20
 TEMOTO_SHARE_RULES = {
-    1: {"shokunin_deduction": 35, "temoto_pool": 35, "temoto_each": 35},
-    2: {"shokunin_deduction": 40, "temoto_pool": 40, "temoto_each": 20},
-    3: {"shokunin_deduction": 40, "temoto_pool": 40, "temoto_each": None},
+    1: {
+        "shokunin_deduction": ONE_HELPER_DEDUCTION_PERCENT,
+        "temoto_pool": ONE_HELPER_DEDUCTION_PERCENT,
+        "temoto_each": ONE_HELPER_DEDUCTION_PERCENT,
+    },
+    2: {
+        "shokunin_deduction": MULTI_HELPER_DEDUCTION_PERCENT,
+        "temoto_pool": MULTI_HELPER_DEDUCTION_PERCENT,
+        "temoto_each": TWO_HELPER_EACH_PERCENT,
+    },
+    3: {
+        "shokunin_deduction": MULTI_HELPER_DEDUCTION_PERCENT,
+        "temoto_pool": MULTI_HELPER_DEDUCTION_PERCENT,
+        "temoto_each": None,
+    },
 }
 
 
@@ -55,13 +74,13 @@ def _shokunin_deduction_percent(helper_count):
     if count <= 0:
         return 0
     if count == 1:
-        return 35
-    return 40
+        return ONE_HELPER_DEDUCTION_PERCENT
+    return MULTI_HELPER_DEDUCTION_PERCENT
 
 
 def _temoto_workers_from_data(data):
     workers = []
-    for key in ("temoto1", "temoto2", "temoto3"):
+    for key in HELPER_FIELDS:
         pk = data.get(f"{key}_id")
         name = str(data.get(key) or "").strip()
         person = None
@@ -77,11 +96,11 @@ def _temoto_workers_from_data(data):
         for name in _temoto_names_from_data(data):
             person = Worker.objects.filter(name=name).first()
             workers.append(person or Worker(name=name, temoto_percent=None))
-    return workers[:3]
+    return workers[:MAX_HELPER_COUNT]
 
 
 def _temoto_allocation(helpers):
-    helpers = [h for h in (helpers or []) if h]
+    helpers = [helper for helper in (helpers or []) if helper]
     count = len(helpers)
     empty = {
         "mode": "none",
@@ -95,7 +114,7 @@ def _temoto_allocation(helpers):
     if count == 0:
         return empty
 
-    has_individual = any(getattr(h, "temoto_percent", None) is not None for h in helpers)
+    has_individual = any(getattr(helper, "temoto_percent", None) is not None for helper in helpers)
     shares = []
     count_deduction = _shokunin_deduction_percent(count)
     if has_individual:
@@ -153,7 +172,7 @@ def _amount_at_percent(amount, percent):
         base = float(amount)
     except (TypeError, ValueError):
         return None
-    return int(floor(base * int(percent or 0) / 100))
+    return int(floor(base * int(percent or 0) / PERCENT_SCALE))
 
 
 def _temoto_line_amounts(line_total, allocation):
@@ -226,24 +245,24 @@ def _sum_line_totals(work_rows, allocation=None):
 
 def _temoto_names_from_data(data):
     names = []
-    for key in ("temoto1", "temoto2", "temoto3"):
+    for key in HELPER_FIELDS:
         name = str(data.get(key) or "").strip()
         if name:
             names.append(name)
     if not names and data.get("helper"):
         names = [
-            n.strip()
-            for n in str(data["helper"]).replace("、", ",").split(",")
-            if n.strip()
+            name.strip()
+            for name in str(data["helper"]).replace("、", ",").split(",")
+            if name.strip()
         ]
-    return names[:3]
+    return names[:MAX_HELPER_COUNT]
 
 
 def _collect_temoto_from_form(form):
     names = []
     ids = []
     fields = {}
-    for key in ("temoto1", "temoto2", "temoto3"):
+    for key in HELPER_FIELDS:
         person = form.cleaned_data.get(key)
         if person:
             names.append(person.name)
@@ -279,18 +298,21 @@ def _parse_int(value):
         return None
 
 
-def _posted_line_has_work(wt, ws, wa, note, mark, billing, pay, ouen, rate_b=None, rate_p=None, rate_o=None):
-    if (wt or "").strip():
+def _posted_line_has_work(
+    work_type, work_size, work_amount, note, mark, billing, pay, ouen,
+    rate_billing=None, rate_pay=None, rate_ouen=None,
+):
+    if (work_type or "").strip():
         return True
-    if (ws or "").strip():
+    if (work_size or "").strip():
         return True
-    if _parse_int(wa) is not None:
+    if _parse_int(work_amount) is not None:
         return True
     if (note or "").strip():
         return True
     if (mark or "").strip():
         return True
-    return any(value is not None for value in (billing, pay, ouen, rate_b, rate_p, rate_o))
+    return any(value is not None for value in (billing, pay, ouen, rate_billing, rate_pay, rate_ouen))
 
 
 def _collect_posted_work_lines(post):
@@ -309,41 +331,44 @@ def _collect_posted_work_lines(post):
     manual_missing = False
     type_missing = False
     prev_type = ""
-    for i in range(1, 16):
-        wt = (post.get(f"work_type_{i}") or "").strip()
-        ws = post.get(f"work_size_{i}") or ""
-        wa = post.get(f"work_amount_{i}")
+    for i in range(1, MAX_WORK_LINES + 1):
+        work_type = (post.get(f"work_type_{i}") or "").strip()
+        work_size = post.get(f"work_size_{i}") or ""
+        work_amount = post.get(f"work_amount_{i}")
         note = (post.get(f"remark_{i}") or "").strip()
         mark = (post.get(f"size_mark_{i}") or "").strip()
         mode = (post.get(f"price_mode_{i}") or "master").strip()
         billing = _parse_int(post.get(f"manual_billing_{i}"))
         pay = _parse_int(post.get(f"manual_pay_{i}"))
         ouen = _parse_int(post.get(f"manual_ouen_{i}"))
-        rate_b = _parse_int(post.get(f"rate_billing_{i}"))
-        rate_p = _parse_int(post.get(f"rate_pay_{i}"))
-        rate_o = _parse_int(post.get(f"rate_ouen_{i}"))
-        if not _posted_line_has_work(wt, ws, wa, note, mark, billing, pay, ouen, rate_b, rate_p, rate_o):
+        rate_billing = _parse_int(post.get(f"rate_billing_{i}"))
+        rate_pay = _parse_int(post.get(f"rate_pay_{i}"))
+        rate_ouen = _parse_int(post.get(f"rate_ouen_{i}"))
+        if not _posted_line_has_work(
+            work_type, work_size, work_amount, note, mark, billing, pay, ouen,
+            rate_billing, rate_pay, rate_ouen,
+        ):
             continue
-        if not wt:
-            wt = prev_type
-        if not wt:
+        if not work_type:
+            work_type = prev_type
+        if not work_type:
             type_missing = True
             continue
-        prev_type = wt
-        if mode == "manual" and billing is None and pay is None and ouen is None and rate_b is None and rate_p is None and rate_o is None:
+        prev_type = work_type
+        if mode == "manual" and billing is None and pay is None and ouen is None and rate_billing is None and rate_pay is None and rate_ouen is None:
             manual_missing = True
-        work_types.append(wt)
-        work_sizes.append(ws)
-        work_amounts.append(_parse_int(wa))
+        work_types.append(work_type)
+        work_sizes.append(work_size)
+        work_amounts.append(_parse_int(work_amount))
         remarks.append(note)
         size_marks.append(mark)
         price_modes.append("manual" if mode == "manual" else "master")
         manual_billings.append(billing)
         manual_pays.append(pay)
         manual_ouens.append(ouen)
-        rate_billings.append(rate_b)
-        rate_pays.append(rate_p)
-        rate_ouens.append(rate_o)
+        rate_billings.append(rate_billing)
+        rate_pays.append(rate_pay)
+        rate_ouens.append(rate_ouen)
     return {
         "work_types": work_types,
         "work_sizes": work_sizes,
@@ -433,14 +458,14 @@ def _safe_mul(left, right):
     return left * right
 
 
-def _lookup_work_size(ws):
-    if ws in (None, ""):
+def _lookup_work_size(work_size_value):
+    if work_size_value in (None, ""):
         return None, ""
     try:
-        obj = WorkSize.objects.get(id=int(ws))
+        obj = WorkSize.objects.get(id=int(work_size_value))
         return obj, obj.name
     except (ValueError, TypeError, WorkSize.DoesNotExist):
-        return None, str(ws)
+        return None, str(work_size_value)
 
 
 def _worker_unit_price(worker, size_obj):
@@ -581,11 +606,6 @@ def _persist_record_lines(request, common, lines):
     return redirect("workrecord_confirm_update")
 
 
-def _finish_unit_save(request, common, lines):
-    result = _persist_record_lines(request, common, lines)
-    return result or redirect("workrecord_list")
-
-
 def _row_save_fields(row, total_price=None):
     return {
         "work_type": row["type"],
@@ -637,9 +657,9 @@ VOUCHER_DETAIL_FIELDS = [
 
 
 def _kind_from_worker(worker):
-    w = (worker or "").strip()
+    worker_label = (worker or "").strip()
     for kind, labels in KIND_WORKERS.items():
-        if w in labels:
+        if worker_label in labels:
             return kind
     return None
 
@@ -723,14 +743,6 @@ def _existing_voucher_groups(voucher_no):
     return groups, existing_kinds
 
 
-def _header_from_fields(fields):
-    return {key: fields.get(key) for key, _label in VOUCHER_HEADER_FIELDS}
-
-
-def _detail_from_fields(fields):
-    return {key: fields.get(key) for key, _label in VOUCHER_DETAIL_FIELDS}
-
-
 def _apply_voucher_save(action, existing_ids, new_fields):
     if action == "overwrite":
         printed_ids = set(_printed_item_map(existing_ids).keys())
@@ -766,21 +778,6 @@ def _bulk_save_fields(data):
         if section.get("can_save"):
             fields.extend(section.get("_new_fields") or [])
     return fields
-
-
-def _display_input_lines(data):
-    lines = []
-    for line in _iter_work_lines(data):
-        _obj, size_name = _lookup_work_size(line["size"])
-        lines.append({
-            "work_type": line["type"],
-            "work_size": size_name,
-            "work_amount": line["amount"],
-            "remark": line["remark"],
-            "size_mark": line.get("size_mark") or "",
-            "price_mode": line["price_mode"],
-        })
-    return lines
 
 
 def _voucher_qs(record):
@@ -897,7 +894,7 @@ def _basic_record_from_records(records):
     company = Company.objects.filter(name=first.company).first() if first.company else None
     primary = GeneralContractor.objects.filter(name=first.primary_company).first() if first.primary_company else None
     temoto_ids = {}
-    for key in ("temoto1", "temoto2", "temoto3"):
+    for key in HELPER_FIELDS:
         name = getattr(first, key, "") or ""
         person = Worker.objects.filter(name=name).first() if name else None
         temoto_ids[f"{key}_id"] = person.pk if person else None
@@ -934,8 +931,8 @@ def _basic_record_from_records(records):
         "rate_billings": rate_billings,
         "rate_pays": rate_pays,
         "rate_ouens": rate_ouens,
-        "helper": "、".join([n for n in (first.temoto1, first.temoto2, first.temoto3) if n]),
-        "helper_count": len([n for n in (first.temoto1, first.temoto2, first.temoto3) if n]),
+        "helper": "、".join([name for name in (first.temoto1, first.temoto2, first.temoto3) if name]),
+        "helper_count": len([name for name in (first.temoto1, first.temoto2, first.temoto3) if name]),
     }
 
 
@@ -971,22 +968,22 @@ def _try_resolve_worker(data):
 
 def _moto_rate_contractor(data):
     billing = (data.get("billing_contractor") or "").strip()
-    site_gc = (data.get("general_contractor") or "").strip()
-    gc = GeneralContractor.objects.filter(name=billing).first() if billing else None
-    if gc is None and site_gc:
-        gc = GeneralContractor.objects.filter(name=site_gc).first()
-    return gc
+    site_contractor = (data.get("general_contractor") or "").strip()
+    contractor = GeneralContractor.objects.filter(name=billing).first() if billing else None
+    if contractor is None and site_contractor:
+        contractor = GeneralContractor.objects.filter(name=site_contractor).first()
+    return contractor
 
 
 def _moto_work_rows(data):
-    gc = _moto_rate_contractor(data)
+    contractor = _moto_rate_contractor(data)
     work_rows = []
     for line in _iter_work_lines(data):
         size_obj, _row = _line_base(line)
         unit_price = None
-        if gc and size_obj:
+        if contractor and size_obj:
             rate = GeneralContractorRate.objects.filter(
-                general_contractor=gc,
+                general_contractor=contractor,
                 work_size=size_obj,
             ).first()
             if rate:
@@ -1092,7 +1089,7 @@ def _section_state(kind, title, common, lines, display_rows, totals, missing="")
 def _build_review_sections(data):
     worker = _try_resolve_worker(data)
     has_lines = bool(data.get("work_types"))
-    temoto_selected = any(str(data.get(key) or "").strip() for key in ("temoto1", "temoto2", "temoto3"))
+    temoto_selected = any(str(data.get(key) or "").strip() for key in HELPER_FIELDS)
     company_selected = bool(str(data.get("company") or "").strip())
     gc_selected = bool(str(data.get("general_contractor") or "").strip())
 
@@ -1183,14 +1180,14 @@ def _work_lines_from_session(data):
     rate_pays = data.get("rate_pays") or []
     rate_ouens = data.get("rate_ouens") or []
     lines = []
-    for i in range(15):
+    for i in range(MAX_WORK_LINES):
         amount = amounts[i] if i < len(amounts) else ""
         billing = billings[i] if i < len(billings) else ""
         pay = pays[i] if i < len(pays) else ""
         ouen = ouens[i] if i < len(ouens) else ""
-        rate_b = rate_billings[i] if i < len(rate_billings) else ""
-        rate_p = rate_pays[i] if i < len(rate_pays) else ""
-        rate_o = rate_ouens[i] if i < len(rate_ouens) else ""
+        rate_billing = rate_billings[i] if i < len(rate_billings) else ""
+        rate_pay = rate_pays[i] if i < len(rate_pays) else ""
+        rate_ouen = rate_ouens[i] if i < len(rate_ouens) else ""
         lines.append({
             "work_type": types[i] if i < len(types) else "",
             "work_size": str(sizes[i]) if i < len(sizes) and sizes[i] not in (None, "") else "",
@@ -1201,9 +1198,9 @@ def _work_lines_from_session(data):
             "manual_billing": "" if billing in (None, "") else billing,
             "manual_pay": "" if pay in (None, "") else pay,
             "manual_ouen": "" if ouen in (None, "") else ouen,
-            "rate_billing": "" if rate_b in (None, "") else rate_b,
-            "rate_pay": "" if rate_p in (None, "") else rate_p,
-            "rate_ouen": "" if rate_o in (None, "") else rate_o,
+            "rate_billing": "" if rate_billing in (None, "") else rate_billing,
+            "rate_pay": "" if rate_pay in (None, "") else rate_pay,
+            "rate_ouen": "" if rate_ouen in (None, "") else rate_ouen,
         })
     return lines
 
@@ -1237,7 +1234,7 @@ def _form_from_basic_record(data):
             initial["worker"] = person.pk
     if company_id:
         initial["company"] = company_id
-    for key in ("temoto1", "temoto2", "temoto3"):
+    for key in HELPER_FIELDS:
         pk = data.get(f"{key}_id")
         if not pk and data.get(key):
             person = Worker.objects.filter(name=data[key]).first()
@@ -1372,7 +1369,7 @@ def workrecord_create(request):
     if request.method == 'POST':
         form = WorkRecordForm(request.POST)
         work_lines = []
-        for i in range(1, 16):
+        for i in range(1, MAX_WORK_LINES + 1):
             work_lines.append({
                 "work_type": request.POST.get(f"work_type_{i}") or "",
                 "work_size": request.POST.get(f"work_size_{i}") or "",
@@ -1545,20 +1542,20 @@ def unit_ouen(request):
 
 
 def _classify_record(record, shokunin_names=None, temoto_names=None):
-    w = (record.worker or "").strip()
-    if w == "元請":
+    worker_label = (record.worker or "").strip()
+    if worker_label == "元請":
         return "元請", record.billing_contractor or record.general_contractor or "（未設定）"
-    if w in ("職人", "shokunin"):
-        return "職人", record.helpers or w
-    if w in ("手元", "temoto"):
-        return "手元", record.helpers or w
-    if w == "応援":
+    if worker_label in ("職人", "shokunin"):
+        return "職人", record.helpers or worker_label
+    if worker_label in ("手元", "temoto"):
+        return "手元", record.helpers or worker_label
+    if worker_label == "応援":
         return "応援", record.company or "（未設定）"
     if record.company:
         return "応援", record.company
     if record.billing_contractor or record.general_contractor:
         return "元請", record.billing_contractor or record.general_contractor
-    return "職人", w or "（未設定）"
+    return "職人", worker_label or "（未設定）"
 
 
 def _party_records(kind, contractor=None, worker=None, company=None):
@@ -1671,10 +1668,10 @@ def _print_text(record, key):
 
 def _print_site_key(record):
     site = _print_text(record, "site")
-    gc = _print_text(record, "general_contractor")
-    if site and gc:
-        return f"{site}（{gc}）"
-    return site or gc
+    contractor_name = _print_text(record, "general_contractor")
+    if site and contractor_name:
+        return f"{site}（{contractor_name}）"
+    return site or contractor_name
 
 
 def _print_upper_key(record):
@@ -1733,7 +1730,7 @@ def _next_month_end_label(end_date):
 
 def _pay_tax_context(kind, total):
     base = int(total or 0)
-    tax = _amount_at_percent(base, 10)
+    tax = _amount_at_percent(base, CONSUMPTION_TAX_PERCENT)
     return {
         "show_tax_block": True,
         "pay_total_num": base,
@@ -2426,17 +2423,17 @@ def workrecord_edit(request, pk):
 
 
 def _record_unit_type(record):
-    w = (record.worker or "").strip()
+    worker_label = (record.worker or "").strip()
     labels = {
         "元請": "moto",
         "職人": "shokunin",
         "手元": "temoto",
         "応援": "ouen",
     }
-    if w in labels:
-        return labels[w]
-    if w in ("moto", "shokunin", "temoto", "ouen"):
-        return w
+    if worker_label in labels:
+        return labels[worker_label]
+    if worker_label in ("moto", "shokunin", "temoto", "ouen"):
+        return worker_label
     return ""
 
 
@@ -2782,6 +2779,7 @@ def workrecord_print_period(request):
     })
 
 
+@require_POST
 def workrecord_delete(request, pk):
     record = get_object_or_404(WorkRecord, pk=pk)
     voucher_records = list(_voucher_qs(record)) or [record]
@@ -2794,6 +2792,16 @@ def workrecord_delete(request, pk):
 def logout_view(request):
     logout(request)
     return redirect("login")
+
+
+def signup_view(request):
+    if request.user.is_authenticated:
+        return redirect("workrecord_search")
+    form = SignupForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        return redirect(reverse("login") + "?signed_up=1")
+    return render(request, "workapp/signup.html", {"form": form})
 
 def monthly_summary(request):
     # 今日の年月を取得

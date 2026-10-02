@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>新規登録 — 請求支払い入力</title>
+    <style>
+        html { background: #e8e8e8; }
+        body {
+            font-family: "Yu Gothic", "Meiryo", sans-serif;
+            color: #111;
+            max-width: 420px;
+            margin: 48px auto;
+            padding: 32px;
+            background: #fff;
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.12);
+        }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .sub { color: #555; margin: 0 0 24px; font-size: 14px; }
+        label { display: block; margin: 12px 0 4px; }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+            font-size: 16px;
+        }
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 10px 16px;
+            font-size: 16px;
+        }
+        .error { color: #b00000; margin: 12px 0; }
+        .help { color: #555; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>新規登録</h1>
+    <p class="sub">招待コードを知っている人だけ登録できます。登録後にログインしてください。</p>
+    <form method="post">
+        {% csrf_token %}
+        <label for="id_invite_code">招待コード</label>
+        {{ form.invite_code }}
+        {% if form.invite_code.errors %}<div class="error">{{ form.invite_code.errors }}</div>{% endif %}
+        <label for="id_username">ユーザー名</label>
+        {{ form.username }}
+        {% if form.username.errors %}<div class="error">{{ form.username.errors }}</div>{% endif %}
+        <label for="id_password1">パスワード</label>
+        {{ form.password1 }}
+        {% if form.password1.help_text %}<div class="help">{{ form.password1.help_text }}</div>{% endif %}
+        {% if form.password1.errors %}<div class="error">{{ form.password1.errors }}</div>{% endif %}
+        <label for="id_password2">パスワード（確認）</label>
+        {{ form.password2 }}
+        {% if form.password2.errors %}<div class="error">{{ form.password2.errors }}</div>{% endif %}
+        <button type="submit">登録する</button>
+    </form>
+    <p class="sub" style="margin-top: 24px;">
+        アカウントがある場合は <a href="{% url 'login' %}">ログイン</a> してください。
+    </p>
+</body>
+</html>

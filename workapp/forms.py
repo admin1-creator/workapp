@@ -1,4 +1,10 @@
+import hmac
+
 from django import forms
+from django.conf import settings
+from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import ValidationError
+from .constants import HELPER_FIELDS, MAX_HELPER_COUNT
 from .models import WorkRecord, Site, GeneralContractor, Worker, Company, WorkSize
 
 
@@ -186,7 +192,7 @@ class WorkRecordBasicForm(forms.ModelForm):
         self.initial["dimension"] = size_name
         dim_css = self.fields["dimension"].widget.attrs.get("class", "")
         self.fields["dimension"].widget.attrs["class"] = (dim_css + " field-input").strip()
-        for key in ("temoto1", "temoto2", "temoto3"):
+        for key in HELPER_FIELDS:
             name = getattr(instance, key, "") or ""
             if name:
                 helper = Worker.objects.filter(name=name).first()
@@ -194,8 +200,8 @@ class WorkRecordBasicForm(forms.ModelForm):
                     self.fields[key].initial = helper
         role = (instance.worker or "").strip()
         if role in ("手元", "temoto") and not getattr(instance, "temoto1", "") and instance.helpers:
-            names = [n.strip() for n in instance.helpers.replace("、", ",").split(",") if n.strip()]
-            for i, name in enumerate(names[:3], start=1):
+            names = [name.strip() for name in instance.helpers.replace("、", ",").split(",") if name.strip()]
+            for i, name in enumerate(names[:MAX_HELPER_COUNT], start=1):
                 helper = Worker.objects.filter(name=name).first()
                 if helper:
                     self.fields[f"temoto{i}"].initial = helper
@@ -278,7 +284,7 @@ class WorkRecordBasicForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         selected = []
-        for key in ("temoto1", "temoto2", "temoto3"):
+        for key in HELPER_FIELDS:
             person = cleaned.get(key)
             if person:
                 selected.append(person.pk)
@@ -304,3 +310,14 @@ class WorkRecordBasicForm(forms.ModelForm):
 
 
 WorkRecordForm = WorkRecordBasicForm
+
+
+class SignupForm(UserCreationForm):
+    invite_code = forms.CharField(label="招待コード", max_length=100)
+
+    def clean_invite_code(self):
+        entered = self.cleaned_data.get("invite_code") or ""
+        expected = settings.SIGNUP_INVITE_CODE or ""
+        if not expected or not hmac.compare_digest(entered, expected):
+            raise ValidationError("招待コードが違います。")
+        return entered

@@ -21,3 +21,7 @@ services:
         generateValue: true
       - key: WEB_CONCURRENCY
         value: 1
+      - key: SIGNUP_INVITE_CODE
+        sync: false
+      - key: DEMO_SEED
+        sync: false

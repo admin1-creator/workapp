@@ -10,6 +10,7 @@ def _login(view):
 
 urlpatterns = [
     path("login/", LoginView.as_view(template_name="workapp/login.html"), name="login"),
+    path("signup/", views.signup_view, name="signup"),
     path("logout/", views.logout_view, name="logout"),
 
     path("", _login(views.workrecord_search), name="workrecord_search"),

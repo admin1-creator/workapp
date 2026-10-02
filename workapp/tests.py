@@ -1,7 +1,10 @@
+import os
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -596,6 +599,7 @@ class PartyFilterTests(LoggedInTestCase):
         }
         session["review_saved"] = True
         session.save()
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = session.session_key
         review = self.client.get(reverse("workrecord_review"))
         self.assertContains(review, "保存しました。")
         self.assertContains(review, "続けて入力")
@@ -1284,6 +1288,68 @@ class VoucherSearchTests(LoggedInTestCase):
         self.assertContains(response, "この伝票を編集")
 
 
+class WorkRecordDeleteTests(LoggedInTestCase):
+    def setUp(self):
+        super().setUp()
+        self.record = WorkRecord.objects.create(
+            voucher_no="DEL-1",
+            date=date(2026, 10, 1),
+            site="北町",
+            work_type="圧接",
+            worker="職人",
+            total_price=1000,
+        )
+
+    def test_get_delete_is_not_allowed_and_keeps_voucher(self):
+        response = self.client.get(reverse("workrecord_delete", args=[self.record.pk]))
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(WorkRecord.objects.filter(pk=self.record.pk).exists())
+
+    def test_post_delete_removes_voucher(self):
+        response = self.client.post(reverse("workrecord_delete", args=[self.record.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(WorkRecord.objects.filter(pk=self.record.pk).exists())
+
+    def test_list_delete_controls_are_post_forms(self):
+        contractor = GeneralContractor.objects.create(name="青葉建設")
+        worker = Worker.objects.create(name="山田太郎", worker_type="職人")
+        moto = WorkRecord.objects.create(
+            voucher_no="DEL-M",
+            date=date(2026, 10, 1),
+            site="北町",
+            work_type="圧接",
+            worker="元請",
+            general_contractor="青葉建設",
+            billing_contractor="青葉建設",
+            total_price=1000,
+        )
+        craftsman = WorkRecord.objects.create(
+            voucher_no="DEL-S",
+            date=date(2026, 10, 2),
+            site="南校舎",
+            work_type="溶接",
+            worker="職人",
+            helpers="山田太郎",
+            total_price=800,
+        )
+        pages = (
+            self.client.get(reverse("workrecord_list"), {
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            }),
+            self.client.get(reverse("workrecord_list"), {
+                "kind": "worker",
+                "worker_id": worker.pk,
+            }),
+        )
+        for page in pages:
+            self.assertContains(page, 'method="post"')
+            self.assertContains(page, "csrfmiddlewaretoken")
+            self.assertContains(page, "この伝票をすべて削除しますか？")
+        self.assertNotContains(pages[0], f'href="/delete/{moto.pk}/')
+        self.assertNotContains(pages[1], f'href="/delete/{craftsman.pk}/')
+
+
 class AdminAutocompleteTests(LoggedInTestCase):
     def setUp(self):
         super().setUp()
@@ -1383,6 +1449,130 @@ class PercentFloorTests(TestCase):
             "shares": [{"percent": 35}],
         })
         self.assertEqual(amounts, [350])
+
+
+@override_settings(SIGNUP_INVITE_CODE="invite-demo")
+class SignupTests(TestCase):
+    def test_login_page_links_to_signup(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, reverse("signup"))
+        self.assertContains(response, "新規登録")
+
+    def test_signup_page_asks_for_invite_code(self):
+        response = self.client.get(reverse("signup"))
+        self.assertContains(response, "招待コード")
+        self.assertContains(response, "登録する")
+
+    def test_wrong_invite_code_does_not_create_user(self):
+        response = self.client.post(reverse("signup"), {
+            "invite_code": "wrong",
+            "username": "new-user",
+            "password1": "Signup-pass-123",
+            "password2": "Signup-pass-123",
+        })
+        self.assertContains(response, "招待コードが違います。")
+        self.assertFalse(User.objects.filter(username="new-user").exists())
+
+    def test_missing_invite_code_setting_rejects_signup(self):
+        with override_settings(SIGNUP_INVITE_CODE=""):
+            response = self.client.post(reverse("signup"), {
+                "invite_code": "invite-demo",
+                "username": "new-user",
+                "password1": "Signup-pass-123",
+                "password2": "Signup-pass-123",
+            })
+        self.assertContains(response, "招待コードが違います。")
+        self.assertFalse(User.objects.filter(username="new-user").exists())
+
+    def test_correct_invite_code_creates_user_who_can_log_in(self):
+        response = self.client.post(reverse("signup"), {
+            "invite_code": "invite-demo",
+            "username": "new-user",
+            "password1": "Signup-pass-123",
+            "password2": "Signup-pass-123",
+        })
+        self.assertRedirects(response, reverse("login") + "?signed_up=1")
+        user = User.objects.get(username="new-user")
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.is_staff)
+        logged_in = self.client.login(username="new-user", password="Signup-pass-123")
+        self.assertTrue(logged_in)
+
+
+class DemoSeedTests(TestCase):
+    def test_seed_does_nothing_without_demo_seed_flag(self):
+        with os_environ_without("DEMO_SEED"):
+            call_command("seed_demo_data")
+        self.assertFalse(WorkRecord.objects.filter(voucher_no__startswith="DEMO-").exists())
+        self.assertFalse(Worker.objects.filter(name="山田太郎").exists())
+
+    def test_seed_creates_recent_vouchers_once(self):
+        with os_environ_set(DEMO_SEED="1"):
+            call_command("seed_demo_data")
+            first_count = WorkRecord.objects.filter(voucher_no__startswith="DEMO-").count()
+            voucher_numbers = set(
+                WorkRecord.objects.filter(voucher_no__startswith="DEMO-")
+                .values_list("voucher_no", flat=True)
+            )
+            call_command("seed_demo_data")
+        self.assertGreaterEqual(len(voucher_numbers), 10)
+        self.assertLessEqual(len(voucher_numbers), 20)
+        self.assertEqual(
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-").count(),
+            first_count,
+        )
+        today = timezone.localdate()
+        dates = set(
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-").values_list("date", flat=True)
+        )
+        self.assertTrue(dates)
+        self.assertTrue(all(0 <= (today - day).days <= 6 for day in dates))
+        helper_counts = set(
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-", worker="職人")
+            .values_list("helper_count", flat=True)
+        )
+        self.assertTrue({0, 1, 2, 3}.issubset(helper_counts))
+        self.assertTrue(
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-", worker="応援").exists()
+        )
+        closing_days = set(
+            GeneralContractor.objects.filter(name__in=["青葉建設", "みどり工務店", "東雲建設"])
+            .values_list("closing_day", flat=True)
+        )
+        self.assertGreaterEqual(len(closing_days), 2)
+        self.assertGreaterEqual(
+            Site.objects.filter(name__startswith="北町マンション").count(),
+            3,
+        )
+        self.assertFalse(Worker.objects.filter(name__contains="花子").exists())
+
+
+class _Environ:
+    def __init__(self, updates, remove):
+        self.updates = updates
+        self.remove = remove
+        self.previous = {}
+
+    def __enter__(self):
+        for key in self.remove:
+            self.previous[key] = os.environ.pop(key, None)
+        os.environ.update(self.updates)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        for key in self.updates:
+            os.environ.pop(key, None)
+        for key, value in self.previous.items():
+            if value is not None:
+                os.environ[key] = value
+
+
+def os_environ_set(**updates):
+    return _Environ(updates, remove=())
+
+
+def os_environ_without(*keys):
+    return _Environ({}, remove=keys)
 
 
 
