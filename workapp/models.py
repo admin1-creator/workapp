@@ -182,6 +182,12 @@ class GeneralContractorRate(models.Model):
     class Meta:
         verbose_name = "元請単価"
         verbose_name_plural = "元請単価一覧"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["general_contractor", "work_size"],
+                name="unique_general_contractor_rate",
+            )
+        ]
 
     def __str__(self):
         return f"{self.general_contractor.name} - {self.work_size.name} : {self.unit_price}円"
@@ -197,6 +203,12 @@ class CompanyRate(models.Model):
     class Meta:
         verbose_name = "応援企業単価"
         verbose_name_plural = "応援企業単価一覧"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "work_size"],
+                name="unique_company_rate",
+            )
+        ]
 
     def __str__(self):
         return f"{self.company.name} - {self.work_size.name}：{self.unit_price}"
@@ -225,6 +237,12 @@ class WorkerDefaultRate(models.Model):
     class Meta:
         verbose_name = "作業員共通単価"
         verbose_name_plural = "作業員共通単価一覧"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["work_size"],
+                name="unique_worker_default_rate",
+            )
+        ]
 
     def __str__(self):
         return f"{self.work_size.name} : {self.unit_price}円"
@@ -281,6 +299,14 @@ class WorkRecord(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["voucher_no", "date", "site"],
+                name="workrecord_search_idx",
+            )
+        ]
 
 
 class PrintedDocument(models.Model):

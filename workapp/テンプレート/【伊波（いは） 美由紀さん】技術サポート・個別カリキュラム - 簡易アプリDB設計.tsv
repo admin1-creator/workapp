@@ -4,7 +4,7 @@ ER図
 	元請 1──* 元請単価 *──1 寸法												
 	元請 1──* 作業記録（請求側）												
 	元請 1──* 印刷書類（請求書）												
-	応援企業 1──* 作業員（任意）												
+	作業員.company は応援企業への外部キーではない（所属の文字列）												
 	応援企業 1──* 応援単価 *──1 寸法												
 	応援企業 1──* 作業記録（応援支払側）												
 	作業員（職人／手元）1──* 作業員単価 *──1 寸法												
@@ -20,9 +20,7 @@ ER図
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
 		1	◯		id	ID	bigint	◯					
 		2			name	元請名	varchar(100)	◯					
-		3			closing_day	締め日（1〜31）	int		NULL		【追加】例:20。未設定なら期間は手入力のみ			
-		4			created_at	作成日時	timestamptz	◯	現在日時				
-		5			updated_at	更新日時	timestamptz	◯	現在日時				
+		3			closing_day	締め日（1〜31）	smallint		NULL		例:20。未設定なら期間は手入力のみ			
 													
 	companies（応援企業）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
@@ -33,9 +31,10 @@ ER図
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
 		1	◯		id	ID	bigint	◯					
 		2			name	作業員名	varchar(100)	◯					
-		3			worker_type	種別	varchar(10)	◯			職人 / 手元			
+		3			worker_type	種別	varchar(10)		職人		職人 / 手元。空欄可			
 		4			temoto_percent	手元％	int		NULL		手元のみ。支払の加算％。職人控除には使わない			
-		5		◯	company_id	所属企業	bigint		NULL		応援企業に所属する場合			
+		5			use_common_rate	共通単価を使用する	bool	◯	true		オフなら worker_rates の個別単価			
+		6			company	所属企業	varchar(100)		空文字		外部キーではない。自社は空欄。応援企業名は入れない			
 													
 	sites（現場）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
@@ -59,6 +58,7 @@ ER図
 		2		◯	general_contractor_id	元請ID	bigint	◯					
 		3		◯	work_size_id	寸法ID	bigint	◯					
 		4			unit_price	単価	int	◯					
+		一意	general_contractor_id + work_size_id	unique_general_contractor_rate						
 													
 	company_rates（応援企業単価）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
@@ -66,6 +66,7 @@ ER図
 		2		◯	company_id	応援企業ID	bigint	◯					
 		3		◯	work_size_id	寸法ID	bigint	◯					
 		4			unit_price	単価	int	◯					
+		一意	company_id + work_size_id	unique_company_rate						
 													
 	worker_rates（作業員単価）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
@@ -73,12 +74,14 @@ ER図
 		2		◯	worker_id	作業員ID	bigint	◯					
 		3		◯	work_size_id	寸法ID	bigint	◯					
 		4			unit_price	単価	int	◯					
+		一意	worker_id + work_size_id	unique_together						
 													
 	worker_default_rates（作業員共通単価）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
 		1	◯		id	ID	bigint	◯					
 		2		◯	work_size_id	寸法ID	bigint	◯					
 		3			unit_price	単価	int	◯			個別単価が無いときの職人単価			
+		一意	work_size_id	unique_worker_default_rate						
 													
 	work_records（作業記録＝1画面入力の明細）												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
@@ -91,20 +94,28 @@ ER図
 		7			dimension	寸法（表示）	varchar(255)		NULL				
 		8			work_amount	作業量	int		NULL				
 		9			remark	備考	varchar(255)		空文字				
-		10			general_contractor	元請名	varchar(255)	◯	空文字		現状は文字列			
-		11			worker	区分（作業員名など）	varchar(50)	◯	空文字		元請／職人名／手元名／応援名の保存に使用			
-		12			company	応援企業名	varchar(255)		空文字				
-		13			shokunin_deduction_percent	職人控除％	int		NULL		1人35、2人以上40。人数のみで決定			
-		14			temoto_percent	手元％	int		NULL		当該手元の支払％			
-		15			helper_count	手元人数	int	◯	0				
-		16			helpers	手元名（まとめ）	varchar(255)		空文字				
-		17			temoto1	手元1	varchar(100)		空文字				
-		18			temoto2	手元2	varchar(100)		空文字				
-		19			temoto3	手元3	varchar(100)		空文字				
-		20			unit_price	単価	int		NULL		保存時点の単価			
-		21			total_price	合計金額	int		NULL					
-		22			created_at	作成日時	timestamptz	◯	現在日時				
-		23			updated_at	更新日時	timestamptz	◯	現在日時				
+		10			size_mark	印	varchar(20)		空文字		例:長尺			
+		11			price_mode	単価区分	varchar(10)		master		master / manual			
+		12			manual_billing	手入力・請求額	int		NULL				
+		13			manual_pay	手入力・支払額	int		NULL				
+		14			manual_ouen	手入力・応援額	int		NULL				
+		15			general_contractor	元請名	varchar(255)	◯	空文字		現状は文字列			
+		16			primary_company	1次企業	varchar(255)		空文字		未選択なら請求先は現場の元請			
+		17			billing_contractor	請求先	varchar(255)	◯	空文字		1次企業があれば1次企業			
+		18			worker	区分（作業員名など）	varchar(50)	◯	空文字		元請／職人名／手元名／応援名の保存に使用			
+		19			company	応援企業名	varchar(255)		空文字				
+		20			shokunin_deduction_percent	職人控除％	int		NULL		1人35、2人以上40。人数のみで決定			
+		21			temoto_percent	手元％	int		NULL		当該手元の支払％			
+		22			helper_count	手元人数	int	◯	0				
+		23			helpers	手元名（まとめ）	varchar(255)		空文字				
+		24			temoto1	手元1	varchar(100)		空文字				
+		25			temoto2	手元2	varchar(100)		空文字				
+		26			temoto3	手元3	varchar(100)		空文字				
+		27			unit_price	単価	int		NULL		保存時点の単価			
+		28			total_price	合計金額	int		NULL					
+		29			created_at	作成日時	timestamptz	◯	現在日時				
+		30			updated_at	更新日時	timestamptz	◯	現在日時				
+		索引	voucher_no, date, site	workrecord_search_idx						
 													
 	配分ルール（テーブルではなくアプリ定数。参考）												
 		手元1人	職人-35%	手元プール35%（個人％があれば支払側に適用）							
@@ -114,7 +125,7 @@ ER図
 	printed_documents（印刷書類）【追加】												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
 		1	◯		id	ID	bigint	◯					
-		2			kind	帳票種別	varchar(20)	◯			moto / shokunin / temoto / ouen			
+		2			kind	帳票種別	varchar(20)	◯			moto / worker / shokunin / temoto / ouen			
 		3			party_name	相手名	varchar(255)	◯			印刷時の表示名を固定			
 		4			party_contractor_id	元請ID	bigint		NULL		kind=moto			
 		5			party_worker_id	作業員ID	bigint		NULL		kind=shokunin または temoto			
@@ -129,9 +140,19 @@ ER図
 	printed_document_items（印刷書類と伝票の紐づけ）【追加】												
 		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
 		1	◯		id	ID	bigint	◯					
-		2		◯	printed_document_id	印刷書類ID	bigint	◯					
-		3		◯	work_record_id	作業記録ID	bigint	◯					
-		4			line_total	行金額（固定）	int		NULL		印刷時点のスナップショット			
+		2		◯	document_id	印刷書類ID	bigint	◯			フィールド名は document			
+		3		◯	work_record_id	作業記録ID	bigint		NULL		伝票削除後も明細を残すため NULL 可			
+		4			line_total	行金額（固定）	int		NULL		印刷時点の行金額			
+		5			snapshot	印刷時点の内容	json	◯	{}				
+													
+	kagami_sheets（支払書）												
+		No	PK	FK	カラム名	項目名	データ型	NOT NULL	デフォルト	備考			
+		1	◯		id	ID	bigint	◯					
+		2			scope_key	対象キー	varchar(255)	◯			一意			
+		3			lines	支払書の行	json	◯	[]				
+		4			total_amount	支払書の合計	int	◯	0				
+		5			created_at	作成日時	timestamptz	◯	現在日時				
+		6			updated_at	更新日時	timestamptz	◯	現在日時				
 													
 	既存の Invoice / Payment モデルについて												
 		備考	models.py にあるが画面未接続。printed_documents に統合する（新規テーブル推奨。既存を拡張してもよい）										
