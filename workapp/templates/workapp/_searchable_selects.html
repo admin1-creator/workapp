@@ -22,6 +22,7 @@
 <script src="{% static 'admin/js/vendor/jquery/jquery.min.js' %}"></script>
 <script src="{% static 'admin/js/vendor/select2/select2.full.min.js' %}"></script>
 <script src="{% static 'admin/js/vendor/select2/i18n/ja.js' %}"></script>
+<script src="{% static 'workapp/js/select_search.js' %}"></script>
 <script>
 (function($) {
     function selectedSiteOption() {
@@ -59,12 +60,7 @@
         return $("#id_primary_company").val() || siteContractorId();
     }
     function init() {
-        const common = {
-            width: "100%",
-            allowClear: true,
-            language: "ja",
-            placeholder: "検索して選ぶ"
-        };
+        const common = WorkappSelectSearch.options({ width: "100%" });
         $("#id_site").select2(common);
         $("#id_primary_company").select2(common);
         $("#id_worker, #id_temoto1, #id_temoto2, #id_temoto3").select2(common);

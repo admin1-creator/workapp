@@ -6,13 +6,11 @@
 <script src="{% static 'admin/js/vendor/jquery/jquery.min.js' %}"></script>
 <script src="{% static 'admin/js/vendor/select2/select2.full.min.js' %}"></script>
 <script src="{% static 'admin/js/vendor/select2/i18n/ja.js' %}"></script>
+<script src="{% static 'workapp/js/select_search.js' %}"></script>
 <script>
 (function($) {
-    $("select[name='worker_id'], select[name='moto_company'], select[name='company_id'], select[name='party']").select2({
-        width: "style",
-        allowClear: true,
-        language: "ja",
-        placeholder: "検索して選ぶ"
-    });
+    $("select[name='worker_id'], select[name='moto_company'], select[name='company_id'], select[name='party'], select[name='site']").select2(
+        WorkappSelectSearch.options({ width: "style" })
+    );
 })(jQuery);
 </script>

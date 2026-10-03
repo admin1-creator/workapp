@@ -7,10 +7,10 @@
 単票印刷	/workrecord/<id>/print/	印刷用レイアウト	1伝票の印刷	WorkRecord	社内	ブラウザ印刷想定	
 期間指定印刷（請求書・支払書）	/workrecord/print/period/	相手4択、相手セレクト、開始日・終了日、プレビュー、印刷、印刷済みにする	期間内の伝票を集計し、元請は請求書、職人・手元・応援は支払書として出す。印刷実行で書類単位の印刷済みにする	WorkRecord、PrintedDocument（追加）、紐づく伝票	社内	【改修】kind を moto / shokunin / temoto / ouen の4種に。印刷後金額はスナップショット固定。再印刷は同じ内容可。金額変更は取消して再印刷	
 月次集計	/monthly/	当月の表、月合計	今月の伝票一覧と合計	WorkRecord	社内	現状は当年当月固定。必要なら年月指定は後回し可	
-元請単価マスタ	/unit/moto/	元請×寸法×単価	元請請求単価の登録・更新	GeneralContractorRate、WorkSize	社内		
-職人単価マスタ	/unit/shokunin/	職人または共通単価×寸法	職人支払単価（個別→なければ共通）	WorkerRate、WorkerDefaultRate	社内		
-手元設定	/unit/temoto/	手元名、個人％	手元の加算％登録	Worker.temoto_percent	社内	職人控除には使わない。支払計算のみ	
-応援単価マスタ	/unit/ouen/	応援企業×寸法×単価	応援支払単価	CompanyRate	社内		
+元請単価マスタ	/admin/workapp/generalcontractorrate/	元請×寸法×単価	元請請求単価の登録・更新	GeneralContractorRate、WorkSize	管理者	管理画面で登録する	
+職人単価マスタ	/admin/workapp/workerrate/ と /admin/workapp/workerdefaultrate/	職人または共通単価×寸法	職人支払単価（個別→なければ共通）	WorkerRate、WorkerDefaultRate	管理者	管理画面で登録する	
+手元設定	/admin/workapp/worker/	手元名、個人％	手元の加算％登録	Worker.temoto_percent	管理者	職人控除には使わない。支払計算のみ	
+応援単価マスタ	/admin/workapp/companyrate/	応援企業×寸法×単価	応援支払単価	CompanyRate	管理者	管理画面で登録する	
 単価取得	/get_unit_price/	API（画面パーツなし）	寸法変更時に単価を返す type=contractor/worker/company	各Rateテーブル	社内	入力画面のJSから利用	
 削除	/delete/<id>/	確認ダイアログ	伝票削除	WorkRecord	社内	印刷済みは削除不可（または取消後）に変更する	
 Django管理画面	/admin/	モデルCRUD	元請・現場・作業員・企業・寸法・作業種類のマスタメンテ	各マスタ	管理者	締め日（closing_day）は元請マスタに追加	

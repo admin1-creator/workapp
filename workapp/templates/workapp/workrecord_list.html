@@ -8,6 +8,7 @@
 {% load display_labels %}
 
     <h2>作業記録一覧</h2>
+    {% include "workapp/_messages.html" %}
     <p>
         <a href="{% url 'workrecord_search' %}">伝票検索</a> |
         <a href="{% url 'workrecord_create' %}">新規入力</a> |

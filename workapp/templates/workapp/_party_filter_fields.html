@@ -18,7 +18,7 @@
     <select name="worker_id">
         <option value="">選択してください</option>
         {% for worker in workers %}
-        <option value="{{ worker.id }}" {% if worker_id == worker.id|stringformat:"s" %}selected{% endif %}>{{ worker.name }}</option>
+        <option value="{{ worker.id }}" data-reading="{{ worker.name_kana }}" {% if worker_id == worker.id|stringformat:"s" %}selected{% endif %}>{{ worker.name }}</option>
         {% endfor %}
     </select>
 </p>

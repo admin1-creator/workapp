@@ -43,6 +43,6 @@ def comma_num(value):
         return ""
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
     return f"{number:,}"

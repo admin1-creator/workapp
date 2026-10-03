@@ -1,10 +1,11 @@
 import os
 from datetime import date, timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -12,6 +13,7 @@ from .models import (
     Company,
     GeneralContractor,
     PrintedDocument,
+    PrintedDocumentItem,
     Site,
     WorkRecord,
     WorkSize,
@@ -21,8 +23,11 @@ from .models import (
     closing_period_for,
     previous_period_for,
 )
+from unittest.mock import patch
+
 from .views import (
     _amount_at_percent,
+    _apply_voucher_save,
     _collect_posted_work_lines,
     _moto_work_rows,
     _next_month_end_label,
@@ -55,7 +60,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請A",
             total_price=1000,
         )
@@ -64,7 +69,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             helpers="職人太郎",
             general_contractor="元請A",
             total_price=800,
@@ -74,7 +79,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="圧接",
-            worker="手元",
+            party_kind="手元",
             helpers="手元花子",
             general_contractor="元請A",
             temoto1="手元花子",
@@ -85,7 +90,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="圧接",
-            worker="応援",
+            party_kind="応援",
             company="応援B",
             general_contractor="元請A",
             total_price=900,
@@ -101,45 +106,60 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(response, "請求先・作業員・応援のいずれか")
 
     def test_lists_show_site_with_gc_and_upper_company(self):
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(listed, "現場X（元請A）")
         self.assertContains(listed, "<th>上位企業</th>")
 
         WorkRecord.objects.filter(helpers="職人太郎").update(primary_company="元請B")
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(listed, "現場X（元請A）")
         self.assertContains(listed, "元請B")
         self.assertNotContains(listed, "<th>元請</th>")
 
     def test_list_worker_includes_craftsman_pay(self):
-        response = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(response, "作業員の一覧")
         self.assertContains(response, "800")
         self.assertNotContains(response, "手元の一覧")
 
     def test_list_worker_includes_helper_pay(self):
-        response = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+            },
+        )
         self.assertContains(response, "作業員の一覧")
         self.assertContains(response, "200")
         self.assertNotContains(response, "職人の一覧")
 
     def test_old_shokunin_url_with_temoto_id_still_works(self):
-        response = self.client.get(reverse("workrecord_list"), {
-            "kind": "shokunin",
-            "worker_id": self.temoto.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "shokunin",
+                "worker_id": self.temoto.pk,
+            },
+        )
         self.assertContains(response, "手元花子")
         self.assertContains(response, "作業員の一覧")
         self.assertNotContains(response, "職人の一覧")
@@ -150,39 +170,48 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 2),
             site="現場X",
             work_type="溶接",
-            worker="手元",
+            party_kind="手元",
             helpers="職人太郎",
             temoto1="職人太郎",
             general_contractor="元請A",
             total_price=150,
         )
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(listed, "800")
         self.assertContains(listed, "150")
         self.assertContains(listed, "作業員の一覧")
-        printed = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        printed = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(printed, "支払明細")
         self.assertContains(printed, "800")
         self.assertContains(printed, "150")
 
     def test_any_worker_can_be_craftsman_or_helper(self):
         from .forms import WorkRecordForm
+
         site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
-        form = WorkRecordForm(data={
-            "voucher_no": "V9",
-            "date": "2026-09-01",
-            "site": str(site.pk),
-            "worker": str(self.temoto.pk),
-            "temoto1": str(self.shokunin.pk),
-        })
+        form = WorkRecordForm(
+            data={
+                "voucher_no": "V9",
+                "date": "2026-09-01",
+                "site": str(site.pk),
+                "worker": str(self.temoto.pk),
+                "temoto1": str(self.shokunin.pk),
+            }
+        )
         self.assertTrue(form.is_valid(), form.errors)
         create = self.client.get(reverse("workrecord_create"))
         self.assertContains(create, 'id="id_worker"')
@@ -192,40 +221,52 @@ class PartyFilterTests(LoggedInTestCase):
 
     def test_ouen_only_does_not_require_worker(self):
         from .forms import WorkRecordForm
+
         site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
-        form = WorkRecordForm(data={
-            "voucher_no": "V8",
-            "date": "2026-09-01",
-            "site": str(site.pk),
-            "company": str(self.company.pk),
-        })
+        form = WorkRecordForm(
+            data={
+                "voucher_no": "V8",
+                "date": "2026-09-01",
+                "site": str(site.pk),
+                "company": str(self.company.pk),
+            }
+        )
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_helper_without_craftsman_is_invalid(self):
         from .forms import WorkRecordForm
+
         site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
-        form = WorkRecordForm(data={
-            "voucher_no": "V8",
-            "date": "2026-09-01",
-            "site": str(site.pk),
-            "temoto1": str(self.temoto.pk),
-        })
+        form = WorkRecordForm(
+            data={
+                "voucher_no": "V8",
+                "date": "2026-09-01",
+                "site": str(site.pk),
+                "temoto1": str(self.temoto.pk),
+            }
+        )
         self.assertFalse(form.is_valid())
         self.assertIn("手元がいるときは", str(form.errors))
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "shokunin",
-            "worker_id": self.shokunin.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "shokunin",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertNotContains(listed, ">区分</th>")
 
     def test_period_print_titles(self):
         base = reverse("workrecord_print_period")
-        moto = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": self.gc_a.pk,
-        })
+        moto = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": self.gc_a.pk,
+            },
+        )
         self.assertContains(moto, "請求書")
         self.assertContains(moto, "1,000")
         self.assertContains(moto, "元請A")
@@ -244,12 +285,15 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(moto, "消費税 10％ 100")
         self.assertNotContains(moto, "税抜合計 1,000（100）")
 
-        pay = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
+        pay = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
         self.assertContains(pay, "支払明細")
         self.assertNotContains(pay, "支払明細（職人）")
         self.assertContains(pay, "800")
@@ -273,13 +317,16 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertNotContains(pay, "手元の一覧")
         self.assertNotContains(pay, "鑑（支払）")
 
-        with_kagami = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-            "kagami": "1",
-        })
+        with_kagami = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+                "kagami": "1",
+            },
+        )
         self.assertContains(with_kagami, "支払書")
         self.assertContains(with_kagami, "<h1>支払書</h1>")
         self.assertContains(with_kagami, "支払明細")
@@ -297,61 +344,79 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(with_kagami, "2026年10月末")
         self.assertContains(with_kagami, "対象期間：")
 
-        helper_kagami = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-            "kagami": "1",
-        })
+        helper_kagami = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+                "kagami": "1",
+            },
+        )
         self.assertContains(helper_kagami, "<h1>支払書</h1>")
         self.assertContains(helper_kagami, "2026年10月末")
 
-        moto_kagami = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": self.gc_a.pk,
-            "kagami": "1",
-        })
+        moto_kagami = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": self.gc_a.pk,
+                "kagami": "1",
+            },
+        )
         self.assertNotContains(moto_kagami, "<h1>支払書</h1>")
 
-        helper = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-        })
+        helper = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+            },
+        )
         self.assertContains(helper, "支払明細")
         self.assertNotContains(helper, "支払明細（手元）")
         self.assertContains(helper, "200")
 
-        ouen = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "ouen",
-            "company_id": self.company.pk,
-        })
+        ouen = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "ouen",
+                "company_id": self.company.pk,
+            },
+        )
         self.assertContains(ouen, "支払明細（応援）")
         self.assertContains(ouen, "900")
         self.assertNotContains(ouen, "支払書をつける")
-        ouen_kagami = self.client.get(base, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "ouen",
-            "company_id": self.company.pk,
-            "kagami": "1",
-        })
+        ouen_kagami = self.client.get(
+            base,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "ouen",
+                "company_id": self.company.pk,
+                "kagami": "1",
+            },
+        )
         self.assertNotContains(ouen_kagami, "<h1>支払書</h1>")
         self.assertNotContains(ouen_kagami, "支払書をつける")
 
     def test_print_keeps_voucher_together_and_uses_page_caps(self):
-        html = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": self.gc_a.pk,
-        }).content.decode()
+        html = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": self.gc_a.pk,
+            },
+        ).content.decode()
         self.assertIn("var firstPage = 16;", html)
         self.assertIn("var nextPage = 25;", html)
         self.assertIn("function voucherGroups(rows)", html)
@@ -359,13 +424,16 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertIn('data-voucher="V1"', html)
 
     def test_worker_kagami_shows_next_month_end_not_period(self):
-        html = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-            "kagami": "1",
-        }).content.decode()
+        html = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+                "kagami": "1",
+            },
+        ).content.decode()
         start = html.find('class="kagami"')
         end = html.find("</section>", start)
         block = html[start:end]
@@ -380,7 +448,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 10),
             site="現場手",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請手入力",
             work_size="D19",
             work_amount=4,
@@ -388,12 +456,15 @@ class PartyFilterTests(LoggedInTestCase):
             total_price=1000,
             price_mode="manual",
         )
-        html = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        }).content.decode()
+        html = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        ).content.decode()
         self.assertIn("250", html)
         self.assertIn("1,000", html)
         self.assertIn("D19", html)
@@ -407,14 +478,17 @@ class PartyFilterTests(LoggedInTestCase):
             "worker_id": str(self.shokunin.pk),
             "kagami": "1",
         }
-        save = self.client.post(period, {
-            **params,
-            "action": "save_kagami",
-            "kagami_item_1": "売上",
-            "kagami_amount_1": "800",
-            "kagami_item_2": "調整",
-            "kagami_amount_2": "100",
-        })
+        save = self.client.post(
+            period,
+            {
+                **params,
+                "action": "save_kagami",
+                "kagami_item_1": "売上",
+                "kagami_amount_1": "800",
+                "kagami_item_2": "調整",
+                "kagami_amount_2": "100",
+            },
+        )
         self.assertEqual(save.status_code, 302)
         self.assertIn("kagami=1", save.url)
 
@@ -429,24 +503,30 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(shown, "消費税 10％ 80")
         self.assertContains(shown, "¥880")
 
-        record = WorkRecord.objects.get(worker="職人", helpers="職人太郎")
+        record = WorkRecord.objects.get(party_kind="職人", helpers="職人太郎")
         single = reverse("workrecord_print", args=[record.pk])
-        single_save = self.client.post(single, {
-            "kind": "worker",
-            "worker_id": str(self.shokunin.pk),
-            "kagami": "1",
-            "action": "save_kagami",
-            "kagami_item_1": "売上",
-            "kagami_amount_1": "800",
-            "kagami_item_2": "手当",
-            "kagami_amount_2": "50",
-        })
+        single_save = self.client.post(
+            single,
+            {
+                "kind": "worker",
+                "worker_id": str(self.shokunin.pk),
+                "kagami": "1",
+                "action": "save_kagami",
+                "kagami_item_1": "売上",
+                "kagami_amount_1": "800",
+                "kagami_item_2": "手当",
+                "kagami_amount_2": "50",
+            },
+        )
         self.assertEqual(single_save.status_code, 302)
-        single_shown = self.client.get(single, {
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-            "kagami": "1",
-        })
+        single_shown = self.client.get(
+            single,
+            {
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+                "kagami": "1",
+            },
+        )
         self.assertContains(single_shown, 'value="手当"')
         self.assertContains(single_shown, "税抜合計 850")
         self.assertContains(single_shown, "消費税 10％ 85")
@@ -466,34 +546,47 @@ class PartyFilterTests(LoggedInTestCase):
             '<th class="col-amount">金額</th>',
         ]
         period = reverse("workrecord_print_period")
-        shokunin = self.client.get(period, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.shokunin.pk,
-        })
-        temoto = self.client.get(period, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-        })
-        ouen = self.client.get(period, {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "ouen",
-            "company_id": self.company.pk,
-        })
+        shokunin = self.client.get(
+            period,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.shokunin.pk,
+            },
+        )
+        temoto = self.client.get(
+            period,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+            },
+        )
+        ouen = self.client.get(
+            period,
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "ouen",
+                "company_id": self.company.pk,
+            },
+        )
         for html in (shokunin, temoto, ouen):
             for header in headers:
                 self.assertContains(html, header)
         self.assertNotContains(temoto, 'class="minus"')
         self.assertNotContains(ouen, 'class="minus"')
 
-        temoto_row = WorkRecord.objects.get(worker="手元")
-        ouen_row = WorkRecord.objects.get(worker="応援")
-        temoto_one = self.client.get(reverse("workrecord_print", args=[temoto_row.pk]), {"kind": "temoto"})
-        ouen_one = self.client.get(reverse("workrecord_print", args=[ouen_row.pk]), {"kind": "ouen"})
+        temoto_row = WorkRecord.objects.get(party_kind="手元")
+        ouen_row = WorkRecord.objects.get(party_kind="応援")
+        temoto_one = self.client.get(
+            reverse("workrecord_print", args=[temoto_row.pk]), {"kind": "temoto"}
+        )
+        ouen_one = self.client.get(
+            reverse("workrecord_print", args=[ouen_row.pk]), {"kind": "ouen"}
+        )
         for html in (temoto_one, ouen_one):
             for header in headers:
                 self.assertContains(html, header)
@@ -506,7 +599,7 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="溶接",
-            worker="手元",
+            party_kind="手元",
             helpers="手元花子",
             general_contractor="元請A",
             temoto1="手元花子",
@@ -514,21 +607,27 @@ class PartyFilterTests(LoggedInTestCase):
             work_amount=2,
             total_price=50,
         )
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+            },
+        )
         self.assertContains(listed, "V1", count=1)
         self.assertContains(listed, "圧接、溶接")
         self.assertContains(listed, "250")
         self.assertNotContains(listed, ">50<")
 
-        printed = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "worker",
-            "worker_id": self.temoto.pk,
-        })
+        printed = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "worker",
+                "worker_id": self.temoto.pk,
+            },
+        )
         self.assertContains(printed, "<td>V1</td>", count=1)
         self.assertContains(printed, "圧接、溶接")
         self.assertContains(printed, "250")
@@ -559,20 +658,70 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertNotContains(response, 'class="mode">単価</th>')
 
     def test_empty_work_type_inherits_previous_line(self):
-        lines = _collect_posted_work_lines({
-            "work_type_1": "圧接",
-            "work_size_1": "1",
-            "work_amount_1": "2",
-            "work_type_2": "",
-            "work_size_2": "2",
-            "work_amount_2": "3",
-            "work_type_3": "",
-            "work_size_3": "",
-            "work_amount_3": "",
-        })
+        lines = _collect_posted_work_lines(
+            {
+                "work_type_1": "圧接",
+                "work_size_1": "1",
+                "work_amount_1": "2",
+                "work_type_2": "",
+                "work_size_2": "2",
+                "work_amount_2": "3",
+                "work_type_3": "",
+                "work_size_3": "",
+                "work_amount_3": "",
+            }
+        )
         self.assertEqual(lines["work_types"], ["圧接", "圧接"])
         self.assertEqual(lines["work_amounts"], [2, 3])
         self.assertFalse(lines["type_missing"])
+        self.assertEqual(lines["line_error"], "")
+
+    def test_line_over_db_limits_is_rejected(self):
+        long_type = _collect_posted_work_lines({"work_type_1": "圧" * 256})
+        self.assertIn("255文字", long_type["line_error"])
+        huge_amount = _collect_posted_work_lines(
+            {"work_type_1": "圧接", "work_amount_1": "3000000000"}
+        )
+        self.assertIn("作業量", huge_amount["line_error"])
+        huge_money = _collect_posted_work_lines(
+            {
+                "work_type_1": "圧接",
+                "work_amount_1": "2",
+                "manual_billing_1": "2000000000",
+            }
+        )
+        self.assertIn("金額", huge_money["line_error"])
+
+    def test_overwrite_keeps_rows_when_save_fails(self):
+        record = WorkRecord.objects.create(
+            voucher_no="KEEP1",
+            date=date(2026, 9, 1),
+            site="現場X",
+            work_type="圧接",
+            party_kind="元請",
+            general_contractor="元請A",
+            total_price=100,
+        )
+        with patch(
+            "workapp.views._save_work_record",
+            side_effect=RuntimeError("save failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                _apply_voucher_save(
+                    "overwrite",
+                    [record.pk],
+                    [
+                        {
+                            "voucher_no": "KEEP1",
+                            "date": date(2026, 9, 1),
+                            "site": "現場X",
+                            "work_type": "溶接",
+                            "party_kind": "元請",
+                            "general_contractor": "元請A",
+                        }
+                    ],
+                )
+        self.assertTrue(WorkRecord.objects.filter(pk=record.pk).exists())
 
     def test_continue_input_after_save_opens_blank_form(self):
         session = self.client.session
@@ -630,10 +779,14 @@ class PartyFilterTests(LoggedInTestCase):
         moto_rows, moto_totals, _alloc = _moto_work_rows(data)
         self.assertEqual(moto_rows[0]["total_price"], 5000)
         self.assertEqual(moto_totals["total"], 5000)
-        shokunin_rows, shokunin_totals, _alloc = _shokunin_work_rows(data, self.shokunin)
+        shokunin_rows, shokunin_totals, _alloc = _shokunin_work_rows(
+            data, self.shokunin
+        )
         self.assertEqual(shokunin_totals["subtotal"], 3000)
         self.assertEqual(shokunin_totals["total"], 1950)
-        _temoto_rows, temoto_totals, _alloc, _shares = _temoto_work_rows(data, self.shokunin)
+        _temoto_rows, temoto_totals, _alloc, _shares = _temoto_work_rows(
+            data, self.shokunin
+        )
         self.assertEqual(temoto_totals["total"], 1050)
         ouen_rows, ouen_totals, _alloc = _ouen_work_rows(data)
         self.assertEqual(ouen_rows[0]["total_price"], 2000)
@@ -665,7 +818,9 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertEqual(moto_rows[0]["unit_price"], 200)
         self.assertEqual(moto_rows[0]["total_price"], 2000)
         self.assertEqual(moto_totals["total"], 2000)
-        shokunin_rows, shokunin_totals, _alloc = _shokunin_work_rows(data, self.shokunin)
+        shokunin_rows, shokunin_totals, _alloc = _shokunin_work_rows(
+            data, self.shokunin
+        )
         self.assertEqual(shokunin_rows[0]["unit_price"], 150)
         self.assertEqual(shokunin_totals["subtotal"], 1500)
         ouen_rows, ouen_totals, _alloc = _ouen_work_rows(data)
@@ -674,8 +829,10 @@ class PartyFilterTests(LoggedInTestCase):
 
     def test_edit_form_is_grouped(self):
         Site.objects.create(name="現場X", general_contractor=self.gc_a)
-        shokunin_row = WorkRecord.objects.get(worker="職人")
-        response = self.client.get(reverse("workrecord_edit", args=[shokunin_row.pk]), follow=True)
+        shokunin_row = WorkRecord.objects.get(party_kind="職人")
+        response = self.client.get(
+            reverse("workrecord_edit", args=[shokunin_row.pk]), follow=True
+        )
         self.assertContains(response, "伝票の編集")
         self.assertContains(response, "1. 基本")
         self.assertContains(response, "2. 職人・手元・応援")
@@ -685,19 +842,30 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(response, "職人太郎")
         self.assertNotContains(response, "この行は")
 
-        moto_row = WorkRecord.objects.get(worker="元請")
-        moto_edit = self.client.get(reverse("workrecord_edit", args=[moto_row.pk]), follow=True)
+        moto_row = WorkRecord.objects.get(party_kind="元請")
+        moto_edit = self.client.get(
+            reverse("workrecord_edit", args=[moto_row.pk]), follow=True
+        )
         self.assertContains(moto_edit, "伝票の編集")
         self.assertContains(moto_edit, "圧接")
 
     def test_create_and_edit_use_searchable_site_and_contractor(self):
-        site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
+        site = Site.objects.create(
+            name="現場X",
+            name_kana="ゲンバエックス",
+            general_contractor=self.gc_a,
+        )
+        self.shokunin.name_kana = "ショクニンタロウ"
+        self.shokunin.save(update_fields=["name_kana"])
         create = self.client.get(reverse("workrecord_create"))
         self.assertContains(create, "select2.full.min.js")
+        self.assertContains(create, "select_search.js")
         self.assertContains(create, f'data-contractor="{self.gc_a.pk}"')
+        self.assertContains(create, 'data-reading="ゲンバエックス"')
+        self.assertContains(create, 'data-reading="ショクニンタロウ"')
         self.assertContains(create, "現場X")
 
-        row = WorkRecord.objects.get(worker="職人")
+        row = WorkRecord.objects.get(party_kind="職人")
         edit = self.client.get(reverse("workrecord_edit", args=[row.pk]), follow=True)
         self.assertContains(edit, "select2.full.min.js")
         self.assertContains(edit, f'data-contractor="{site.general_contractor_id}"')
@@ -708,6 +876,7 @@ class PartyFilterTests(LoggedInTestCase):
 
     def test_form_billing_follows_primary_company(self):
         from .forms import WorkRecordForm
+
         site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
         base = {
             "voucher_no": "V9",
@@ -733,21 +902,27 @@ class PartyFilterTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="現場X",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請A",
             primary_company="元請B",
             billing_contractor="元請B",
             total_price=111,
         )
-        a_list = self.client.get(reverse("workrecord_list"), {
-            "kind": "moto",
-            "moto_company": self.gc_a.pk,
-        })
+        a_list = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "moto",
+                "moto_company": self.gc_a.pk,
+            },
+        )
         self.assertNotContains(a_list, "BILL")
-        b_list = self.client.get(reverse("workrecord_list"), {
-            "kind": "moto",
-            "moto_company": self.gc_b.pk,
-        })
+        b_list = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "moto",
+                "moto_company": self.gc_b.pk,
+            },
+        )
         self.assertContains(b_list, "BILL")
         self.assertContains(b_list, "111")
 
@@ -778,10 +953,13 @@ class ClosingDayTests(LoggedInTestCase):
 
     def test_list_shows_unset_closing_day(self):
         contractor = GeneralContractor.objects.create(name="元請C")
-        response = self.client.get(reverse("workrecord_list"), {
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        )
         self.assertContains(response, "締め日は未設定")
         self.assertContains(response, "開始日・終了日を手入力")
 
@@ -793,7 +971,7 @@ class ClosingDayTests(LoggedInTestCase):
             date=start,
             site="現場Y",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請D",
             total_price=100,
         )
@@ -802,14 +980,17 @@ class ClosingDayTests(LoggedInTestCase):
             date=start - timedelta(days=1),
             site="現場Y",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請D",
             total_price=50,
         )
-        response = self.client.get(reverse("workrecord_list"), {
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        )
         self.assertContains(response, "毎月 20 日")
         self.assertContains(response, str(start))
         self.assertContains(response, str(end))
@@ -822,12 +1003,15 @@ class ClosingDayTests(LoggedInTestCase):
 
     def test_save_closing_day_from_list(self):
         contractor = GeneralContractor.objects.create(name="元請E")
-        response = self.client.post(reverse("workrecord_list"), {
-            "save_closing_day": "1",
-            "kind": "moto",
-            "moto_company": contractor.pk,
-            "closing_day": "25",
-        })
+        response = self.client.post(
+            reverse("workrecord_list"),
+            {
+                "save_closing_day": "1",
+                "kind": "moto",
+                "moto_company": contractor.pk,
+                "closing_day": "25",
+            },
+        )
         self.assertEqual(response.status_code, 302)
         contractor.refresh_from_db()
         self.assertEqual(contractor.closing_day, 25)
@@ -839,26 +1023,32 @@ class ClosingDayTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場Z",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請F",
             total_price=300,
         )
-        response = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        )
         self.assertContains(response, "請求書")
         self.assertContains(response, "300")
 
     def test_period_print_prefills_closing_period(self):
         contractor = GeneralContractor.objects.create(name="元請G", closing_day=20)
         start, end = contractor.current_closing_period(timezone.localdate())
-        response = self.client.get(reverse("workrecord_print_period"), {
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        })
+        response = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        )
         self.assertContains(response, f'value="{start.isoformat()}"')
         self.assertContains(response, f'value="{end.isoformat()}"')
 
@@ -884,7 +1074,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場P",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請H",
             total_price=1000,
         )
@@ -908,23 +1098,31 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertContains(frozen, "1,000")
         self.assertNotContains(frozen, "9999")
 
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        )
         self.assertContains(listed, "印刷済み")
         self.assertContains(listed, "未請求：0 件")
 
         edit = self.client.get(reverse("workrecord_edit", args=[record.pk]))
         self.assertContains(edit, "印刷済みのため")
 
-        cancel = self.client.post(period, {
-            **params,
-            "action": "cancel_printed",
-            "document_id": frozen.context["printed_document"].id,
-        })
+        cancel = self.client.post(
+            period,
+            {
+                **params,
+                "action": "cancel_printed",
+                "document_id": frozen.context["printed_document"].id,
+            },
+        )
         self.assertEqual(cancel.status_code, 302)
-        edit_again = self.client.get(reverse("workrecord_edit", args=[record.pk]), follow=True)
+        edit_again = self.client.get(
+            reverse("workrecord_edit", args=[record.pk]), follow=True
+        )
         self.assertNotContains(edit_again, "印刷済みのため")
         self.assertContains(edit_again, "伝票の編集")
 
@@ -936,7 +1134,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 8, 15),
             site="現場P2",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請J",
             total_price=2000,
         )
@@ -945,7 +1143,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 8, 15),
             site="現場P2",
             work_type="圧接",
-            worker="応援",
+            party_kind="応援",
             company="応援J",
             general_contractor="元請J",
             total_price=1500,
@@ -964,26 +1162,37 @@ class LoginAndPrintTests(LoggedInTestCase):
             "company_id": str(company.pk),
         }
         self.assertEqual(
-            self.client.post(period, {**moto_params, "action": "mark_printed"}).status_code,
+            self.client.post(
+                period, {**moto_params, "action": "mark_printed"}
+            ).status_code,
             302,
         )
         self.assertEqual(
-            self.client.post(period, {**ouen_params, "action": "mark_printed"}).status_code,
+            self.client.post(
+                period, {**ouen_params, "action": "mark_printed"}
+            ).status_code,
             302,
         )
         ouen_printed = self.client.get(period, ouen_params)
-        cancel = self.client.post(period, {
-            **ouen_params,
-            "action": "cancel_printed",
-            "document_id": ouen_printed.context["printed_document"].id,
-        })
+        cancel = self.client.post(
+            period,
+            {
+                **ouen_params,
+                "action": "cancel_printed",
+                "document_id": ouen_printed.context["printed_document"].id,
+            },
+        )
         self.assertEqual(cancel.status_code, 302)
         self.assertEqual(
-            PrintedDocument.objects.get(pk=ouen_printed.context["printed_document"].id).status,
+            PrintedDocument.objects.get(
+                pk=ouen_printed.context["printed_document"].id
+            ).status,
             "cancelled",
         )
 
-        ouen_edit = self.client.get(reverse("workrecord_edit", args=[ouen.pk]), follow=True)
+        ouen_edit = self.client.get(
+            reverse("workrecord_edit", args=[ouen.pk]), follow=True
+        )
         self.assertNotContains(ouen_edit, "印刷済みのため")
         self.assertContains(ouen_edit, "伝票の編集")
         self.assertContains(ouen_edit, "印刷済みの元請の行は、保存しても変更しません")
@@ -991,10 +1200,13 @@ class LoginAndPrintTests(LoggedInTestCase):
         moto_edit = self.client.get(reverse("workrecord_edit", args=[moto.pk]))
         self.assertContains(moto_edit, "印刷済みのため")
 
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "ouen",
-            "company_id": company.pk,
-        })
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "ouen",
+                "company_id": company.pk,
+            },
+        )
         self.assertContains(listed, "未請求")
         self.assertNotContains(listed, "印刷済み")
 
@@ -1014,11 +1226,13 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場S",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             helpers="職人太郎",
             total_price=800,
         )
-        response = self.client.get(reverse("workrecord_print", args=[record.pk]), {"kind": "worker"})
+        response = self.client.get(
+            reverse("workrecord_print", args=[record.pk]), {"kind": "worker"}
+        )
         self.assertContains(response, "支払明細")
         self.assertNotContains(response, "支払明細（職人）")
         self.assertContains(response, "請求支払い入力")
@@ -1033,19 +1247,22 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場M",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請I",
             work_size="D19",
             work_amount=10,
             unit_price=100,
             total_price=1000,
         )
-        html = self.client.get(reverse("workrecord_print_period"), {
-            "from_date": "2026-09-01",
-            "to_date": "2026-09-30",
-            "kind": "moto",
-            "moto_company": contractor.pk,
-        }).content.decode()
+        html = self.client.get(
+            reverse("workrecord_print_period"),
+            {
+                "from_date": "2026-09-01",
+                "to_date": "2026-09-30",
+                "kind": "moto",
+                "moto_company": contractor.pk,
+            },
+        ).content.decode()
         self.assertIn(
             "<th>伝票番号</th>",
             html,
@@ -1068,16 +1285,17 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertIn("col.col-site { width: 12%; }", html)
         self.assertIn("col.col-work { width: 20%; }", html)
         self.assertIn("col.col-size { width: 14%; }", html)
-        self.assertNotIn("table.data th.col-amount {\n            text-decoration: underline", html)
+        self.assertNotIn(
+            "table.data th.col-amount {\n            text-decoration: underline", html
+        )
 
     def test_single_print_shows_all_voucher_work_lines(self):
-        contractor = GeneralContractor.objects.create(name="元請J")
         first = WorkRecord.objects.create(
             voucher_no="M2",
             date=date(2026, 9, 5),
             site="現場J",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請J",
             total_price=1000,
         )
@@ -1086,7 +1304,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場J",
             work_type="溶接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請J",
             total_price=400,
         )
@@ -1101,12 +1319,12 @@ class LoginAndPrintTests(LoggedInTestCase):
 
     def test_print_blanks_repeated_fields_within_voucher(self):
         contractor = GeneralContractor.objects.create(name="元請R")
-        first = WorkRecord.objects.create(
+        WorkRecord.objects.create(
             voucher_no="R1",
             date=date(2026, 9, 5),
             site="現場R",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請R",
             primary_company="一次R",
             total_price=1000,
@@ -1116,7 +1334,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場R",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請R",
             primary_company="一次R",
             total_price=400,
@@ -1126,7 +1344,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 6),
             site="現場R2",
             work_type="溶接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="元請R",
             primary_company="一次R",
             total_price=200,
@@ -1156,7 +1374,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場H",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             helpers="職人次郎",
             general_contractor="元請A",
             work_size="D19",
@@ -1174,7 +1392,7 @@ class LoginAndPrintTests(LoggedInTestCase):
             date=date(2026, 9, 5),
             site="現場H",
             work_type="溶接",
-            worker="職人",
+            party_kind="職人",
             helpers="職人次郎",
             general_contractor="元請A",
             work_size="D22",
@@ -1186,10 +1404,13 @@ class LoginAndPrintTests(LoggedInTestCase):
             shokunin_deduction_percent=35,
             remark="2行目",
         )
-        listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "shokunin",
-            "worker_id": worker.pk,
-        }).content.decode()
+        listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "shokunin",
+                "worker_id": worker.pk,
+            },
+        ).content.decode()
         remark_pos = listed.find(">備考</th>")
         amount_pos = listed.find(">合計金額</th>")
         self.assertGreater(remark_pos, amount_pos)
@@ -1197,18 +1418,28 @@ class LoginAndPrintTests(LoggedInTestCase):
         self.assertIn("−4200", listed)
         self.assertLess(listed.find(">圧接</td>"), listed.find(">溶接</td>"))
         self.assertLess(listed.find(">溶接</td>"), listed.find("手元（手元花子）"))
-        worker_listed = self.client.get(reverse("workrecord_list"), {
-            "kind": "worker",
-            "worker_id": worker.pk,
-        }).content.decode()
-        self.assertLess(worker_listed.find(">圧接</td>"), worker_listed.find(">溶接</td>"))
-        self.assertLess(worker_listed.find(">溶接</td>"), worker_listed.find("手元（手元花子）"))
+        worker_listed = self.client.get(
+            reverse("workrecord_list"),
+            {
+                "kind": "worker",
+                "worker_id": worker.pk,
+            },
+        ).content.decode()
+        self.assertLess(
+            worker_listed.find(">圧接</td>"), worker_listed.find(">溶接</td>")
+        )
+        self.assertLess(
+            worker_listed.find(">溶接</td>"), worker_listed.find("手元（手元花子）")
+        )
         self.assertEqual(listed.count(">印刷</a>"), 1)
         self.assertEqual(listed.count(">編集</a>"), 1)
 
-        printed = self.client.get(reverse("workrecord_print", args=[record.pk]), {
-            "kind": "shokunin",
-        }).content.decode()
+        printed = self.client.get(
+            reverse("workrecord_print", args=[record.pk]),
+            {
+                "kind": "shokunin",
+            },
+        ).content.decode()
         self.assertLess(printed.find(">伝票番号</th>"), printed.find(">日付</th>"))
         self.assertLess(printed.find(">現場名</th>"), printed.find(">上位企業</th>"))
         self.assertEqual(printed.count("手元（手元花子）"), 1)
@@ -1224,13 +1455,22 @@ class LoginAndPrintTests(LoggedInTestCase):
 class VoucherSearchTests(LoggedInTestCase):
     def setUp(self):
         super().setUp()
-        self.worker = Worker.objects.create(name="検索職人", worker_type="職人")
+        self.worker = Worker.objects.create(
+            name="検索職人",
+            name_kana="ケンサクショクニン",
+            worker_type="職人",
+        )
+        self.site = Site.objects.create(
+            name="検索現場",
+            name_kana="ケンサクゲンバ",
+            general_contractor=GeneralContractor.objects.create(name="元請Z"),
+        )
         self.record = WorkRecord.objects.create(
             voucher_no="S-100",
             date=date(2026, 9, 8),
             site="検索現場",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             helpers="検索職人",
             general_contractor="元請Z",
             total_price=500,
@@ -1240,7 +1480,7 @@ class VoucherSearchTests(LoggedInTestCase):
             date=date(2026, 9, 8),
             site="検索現場",
             work_type="溶接",
-            worker="職人",
+            party_kind="職人",
             helpers="検索職人",
             general_contractor="元請Z",
             total_price=200,
@@ -1250,7 +1490,7 @@ class VoucherSearchTests(LoggedInTestCase):
             date=date(2026, 9, 1),
             site="別現場",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             total_price=100,
         )
 
@@ -1260,26 +1500,45 @@ class VoucherSearchTests(LoggedInTestCase):
         self.assertNotContains(response, "S-100")
 
     def test_search_by_voucher_and_site(self):
-        response = self.client.get(reverse("workrecord_search"), {
-            "voucher_no": "S-1",
-            "site": "検索",
-        })
+        response = self.client.get(
+            reverse("workrecord_search"),
+            {
+                "voucher_no": "S-1",
+                "site": self.site.pk,
+            },
+        )
+        html = response.content.decode()
         self.assertContains(response, "S-100")
         self.assertContains(response, "検索現場")
         self.assertNotContains(response, "OTHER")
         self.assertContains(response, "2")
         self.assertContains(response, "詳細")
+        self.assertIn('<select name="site">', html)
+        self.assertNotIn('<input type="text" name="site"', html)
+        self.assertIn('data-reading="ケンサクゲンバ"', html)
+        self.assertIn('data-reading="ケンサクショクニン"', html)
+        self.assertIn("select_search.js", html)
+        script_path = Path(__file__).resolve().parent / "static" / "workapp" / "js"
+        script = (script_path / "select_search.js").read_text(encoding="utf-8")
+        self.assertIn('normalize("NFKC")', script)
+        self.assertIn("compositionstart", script)
+        self.assertIn("compositionend", script)
 
     def test_search_by_worker_and_date(self):
-        response = self.client.get(reverse("workrecord_search"), {
-            "date": "2026-09-08",
-            "party": f"shokunin-{self.worker.pk}",
-        })
+        response = self.client.get(
+            reverse("workrecord_search"),
+            {
+                "date": "2026-09-08",
+                "party": f"shokunin-{self.worker.pk}",
+            },
+        )
         self.assertContains(response, "S-100")
         self.assertNotContains(response, "OTHER")
 
     def test_result_opens_voucher_detail(self):
-        response = self.client.get(reverse("workrecord_voucher_detail", args=[self.record.pk]))
+        response = self.client.get(
+            reverse("workrecord_voucher_detail", args=[self.record.pk])
+        )
         self.assertContains(response, "伝票詳細")
         self.assertContains(response, "S-100")
         self.assertContains(response, "圧接")
@@ -1296,7 +1555,7 @@ class WorkRecordDeleteTests(LoggedInTestCase):
             date=date(2026, 10, 1),
             site="北町",
             work_type="圧接",
-            worker="職人",
+            party_kind="職人",
             total_price=1000,
         )
 
@@ -1306,9 +1565,32 @@ class WorkRecordDeleteTests(LoggedInTestCase):
         self.assertTrue(WorkRecord.objects.filter(pk=self.record.pk).exists())
 
     def test_post_delete_removes_voucher(self):
-        response = self.client.post(reverse("workrecord_delete", args=[self.record.pk]))
-        self.assertEqual(response.status_code, 302)
+        response = self.client.post(
+            reverse("workrecord_delete", args=[self.record.pk]), follow=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "伝票を削除しました。")
         self.assertFalse(WorkRecord.objects.filter(pk=self.record.pk).exists())
+
+    def test_printed_voucher_is_not_deleted_and_explains_why(self):
+        document = PrintedDocument.objects.create(
+            kind="shokunin",
+            party_name="職人太郎",
+            period_start=date(2026, 10, 1),
+            period_end=date(2026, 10, 31),
+            total_amount=1000,
+        )
+        PrintedDocumentItem.objects.create(
+            document=document,
+            work_record=self.record,
+            line_total=1000,
+            snapshot={},
+        )
+        response = self.client.post(
+            reverse("workrecord_delete", args=[self.record.pk]), follow=True
+        )
+        self.assertContains(response, "印刷済みのため削除できません。")
+        self.assertTrue(WorkRecord.objects.filter(pk=self.record.pk).exists())
 
     def test_list_delete_controls_are_post_forms(self):
         contractor = GeneralContractor.objects.create(name="青葉建設")
@@ -1318,7 +1600,7 @@ class WorkRecordDeleteTests(LoggedInTestCase):
             date=date(2026, 10, 1),
             site="北町",
             work_type="圧接",
-            worker="元請",
+            party_kind="元請",
             general_contractor="青葉建設",
             billing_contractor="青葉建設",
             total_price=1000,
@@ -1328,19 +1610,25 @@ class WorkRecordDeleteTests(LoggedInTestCase):
             date=date(2026, 10, 2),
             site="南校舎",
             work_type="溶接",
-            worker="職人",
+            party_kind="職人",
             helpers="山田太郎",
             total_price=800,
         )
         pages = (
-            self.client.get(reverse("workrecord_list"), {
-                "kind": "moto",
-                "moto_company": contractor.pk,
-            }),
-            self.client.get(reverse("workrecord_list"), {
-                "kind": "worker",
-                "worker_id": worker.pk,
-            }),
+            self.client.get(
+                reverse("workrecord_list"),
+                {
+                    "kind": "moto",
+                    "moto_company": contractor.pk,
+                },
+            ),
+            self.client.get(
+                reverse("workrecord_list"),
+                {
+                    "kind": "worker",
+                    "worker_id": worker.pk,
+                },
+            ),
         )
         for page in pages:
             self.assertContains(page, 'method="post"')
@@ -1374,8 +1662,8 @@ class AdminAutocompleteTests(LoggedInTestCase):
         Company.objects.create(name="応援は出さない")
         response = self.client.get(reverse("admin:workapp_worker_add"))
         html = response.content.decode()
-        self.assertIn('id="id_company"', html)
-        self.assertNotIn('select name="company"', html)
+        self.assertIn('id="id_affiliation"', html)
+        self.assertNotIn('select name="affiliation"', html)
         self.assertNotIn("応援は出さない", html)
         self.assertContains(response, "専属のひとり親方")
 
@@ -1384,10 +1672,16 @@ class WorkerRateChoiceTests(TestCase):
     def setUp(self):
         self.size = WorkSize.objects.create(name="D19")
         WorkerDefaultRate.objects.create(work_size=self.size, unit_price=800)
-        self.common_worker = Worker.objects.create(name="共通さん", use_common_rate=True)
+        self.common_worker = Worker.objects.create(
+            name="共通さん", use_common_rate=True
+        )
         self.own_worker = Worker.objects.create(name="独自さん", use_common_rate=False)
-        WorkerRate.objects.create(worker=self.common_worker, work_size=self.size, unit_price=999)
-        WorkerRate.objects.create(worker=self.own_worker, work_size=self.size, unit_price=650)
+        WorkerRate.objects.create(
+            worker=self.common_worker, work_size=self.size, unit_price=999
+        )
+        WorkerRate.objects.create(
+            worker=self.own_worker, work_size=self.size, unit_price=650
+        )
 
     def test_common_rate_ignores_own_row(self):
         self.assertEqual(_worker_unit_price(self.common_worker, self.size), 800)
@@ -1398,16 +1692,22 @@ class WorkerRateChoiceTests(TestCase):
     def test_get_unit_price_api_follows_flag(self):
         user = User.objects.create_user("rate-user", password="test-pass-123")
         self.client.force_login(user)
-        common = self.client.get(reverse("get_unit_price"), {
-            "type": "worker",
-            "id": self.common_worker.pk,
-            "size": self.size.pk,
-        })
-        own = self.client.get(reverse("get_unit_price"), {
-            "type": "worker",
-            "id": self.own_worker.pk,
-            "size": self.size.pk,
-        })
+        common = self.client.get(
+            reverse("get_unit_price"),
+            {
+                "type": "worker",
+                "id": self.common_worker.pk,
+                "size": self.size.pk,
+            },
+        )
+        own = self.client.get(
+            reverse("get_unit_price"),
+            {
+                "type": "worker",
+                "id": self.own_worker.pk,
+                "size": self.size.pk,
+            },
+        )
         self.assertEqual(common.json()["unit_price"], 800)
         self.assertEqual(own.json()["unit_price"], 650)
 
@@ -1430,24 +1730,30 @@ class PercentFloorTests(TestCase):
 
     def test_shokunin_deduction_floors_then_subtracts(self):
         rows = [{"total_price": 1001}]
-        totals = _with_temoto_deduction(rows, {
-            "count": 1,
-            "temoto_pool": 35,
-            "temoto_each": 35,
-            "mode": "count",
-            "shares": [],
-        })
+        totals = _with_temoto_deduction(
+            rows,
+            {
+                "count": 1,
+                "temoto_pool": 35,
+                "temoto_each": 35,
+                "mode": "count",
+                "shares": [],
+            },
+        )
         self.assertEqual(totals["deduction"], 350)
         self.assertEqual(totals["total"], 651)
         self.assertEqual(rows[0]["total_price"], 651)
 
     def test_temoto_share_floors(self):
-        amounts = _temoto_line_amounts(1001, {
-            "count": 1,
-            "split_pool": False,
-            "temoto_pool": 35,
-            "shares": [{"percent": 35}],
-        })
+        amounts = _temoto_line_amounts(
+            1001,
+            {
+                "count": 1,
+                "split_pool": False,
+                "temoto_pool": 35,
+                "shares": [{"percent": 35}],
+            },
+        )
         self.assertEqual(amounts, [350])
 
 
@@ -1464,33 +1770,42 @@ class SignupTests(TestCase):
         self.assertContains(response, "登録する")
 
     def test_wrong_invite_code_does_not_create_user(self):
-        response = self.client.post(reverse("signup"), {
-            "invite_code": "wrong",
-            "username": "new-user",
-            "password1": "Signup-pass-123",
-            "password2": "Signup-pass-123",
-        })
+        response = self.client.post(
+            reverse("signup"),
+            {
+                "invite_code": "wrong",
+                "username": "new-user",
+                "password1": "Signup-pass-123",
+                "password2": "Signup-pass-123",
+            },
+        )
         self.assertContains(response, "招待コードが違います。")
         self.assertFalse(User.objects.filter(username="new-user").exists())
 
     def test_missing_invite_code_setting_rejects_signup(self):
         with override_settings(SIGNUP_INVITE_CODE=""):
-            response = self.client.post(reverse("signup"), {
-                "invite_code": "invite-demo",
-                "username": "new-user",
-                "password1": "Signup-pass-123",
-                "password2": "Signup-pass-123",
-            })
+            response = self.client.post(
+                reverse("signup"),
+                {
+                    "invite_code": "invite-demo",
+                    "username": "new-user",
+                    "password1": "Signup-pass-123",
+                    "password2": "Signup-pass-123",
+                },
+            )
         self.assertContains(response, "招待コードが違います。")
         self.assertFalse(User.objects.filter(username="new-user").exists())
 
     def test_correct_invite_code_creates_user_who_can_log_in(self):
-        response = self.client.post(reverse("signup"), {
-            "invite_code": "invite-demo",
-            "username": "new-user",
-            "password1": "Signup-pass-123",
-            "password2": "Signup-pass-123",
-        })
+        response = self.client.post(
+            reverse("signup"),
+            {
+                "invite_code": "invite-demo",
+                "username": "new-user",
+                "password1": "Signup-pass-123",
+                "password2": "Signup-pass-123",
+            },
+        )
         self.assertRedirects(response, reverse("login") + "?signed_up=1")
         user = User.objects.get(username="new-user")
         self.assertTrue(user.is_active)
@@ -1503,16 +1818,21 @@ class DemoSeedTests(TestCase):
     def test_seed_does_nothing_without_demo_seed_flag(self):
         with os_environ_without("DEMO_SEED"):
             call_command("seed_demo_data")
-        self.assertFalse(WorkRecord.objects.filter(voucher_no__startswith="DEMO-").exists())
+        self.assertFalse(
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-").exists()
+        )
         self.assertFalse(Worker.objects.filter(name="山田太郎").exists())
 
     def test_seed_creates_recent_vouchers_once(self):
         with os_environ_set(DEMO_SEED="1"):
             call_command("seed_demo_data")
-            first_count = WorkRecord.objects.filter(voucher_no__startswith="DEMO-").count()
+            first_count = WorkRecord.objects.filter(
+                voucher_no__startswith="DEMO-"
+            ).count()
             voucher_numbers = set(
-                WorkRecord.objects.filter(voucher_no__startswith="DEMO-")
-                .values_list("voucher_no", flat=True)
+                WorkRecord.objects.filter(voucher_no__startswith="DEMO-").values_list(
+                    "voucher_no", flat=True
+                )
             )
             call_command("seed_demo_data")
         self.assertGreaterEqual(len(voucher_numbers), 10)
@@ -1523,21 +1843,27 @@ class DemoSeedTests(TestCase):
         )
         today = timezone.localdate()
         dates = set(
-            WorkRecord.objects.filter(voucher_no__startswith="DEMO-").values_list("date", flat=True)
+            WorkRecord.objects.filter(voucher_no__startswith="DEMO-").values_list(
+                "date", flat=True
+            )
         )
         self.assertTrue(dates)
         self.assertTrue(all(0 <= (today - day).days <= 6 for day in dates))
         helper_counts = set(
-            WorkRecord.objects.filter(voucher_no__startswith="DEMO-", worker="職人")
-            .values_list("helper_count", flat=True)
+            WorkRecord.objects.filter(
+                voucher_no__startswith="DEMO-", party_kind="職人"
+            ).values_list("helper_count", flat=True)
         )
         self.assertTrue({0, 1, 2, 3}.issubset(helper_counts))
         self.assertTrue(
-            WorkRecord.objects.filter(voucher_no__startswith="DEMO-", worker="応援").exists()
+            WorkRecord.objects.filter(
+                voucher_no__startswith="DEMO-", party_kind="応援"
+            ).exists()
         )
         closing_days = set(
-            GeneralContractor.objects.filter(name__in=["青葉建設", "みどり工務店", "東雲建設"])
-            .values_list("closing_day", flat=True)
+            GeneralContractor.objects.filter(
+                name__in=["青葉建設", "みどり工務店", "東雲建設"]
+            ).values_list("closing_day", flat=True)
         )
         self.assertGreaterEqual(len(closing_days), 2)
         self.assertGreaterEqual(
@@ -1545,6 +1871,61 @@ class DemoSeedTests(TestCase):
             3,
         )
         self.assertFalse(Worker.objects.filter(name__contains="花子").exists())
+
+
+class MasterLinkTests(LoggedInTestCase):
+    def test_duplicate_names_are_not_linked(self):
+        from .models import unique_named
+
+        Worker.objects.create(name="同名", employee_number="A-1")
+        Worker.objects.create(name="同名", employee_number="A-2")
+        self.assertIsNone(unique_named(Worker, "同名"))
+        only = Worker.objects.create(name="一名", employee_number="B-1")
+        self.assertEqual(unique_named(Worker, "一名"), only)
+
+    def test_inactive_worker_is_hidden_on_the_new_form(self):
+        Worker.objects.create(name="退職者", employee_number="RET-1", is_active=False)
+        response = self.client.get(reverse("workrecord_create"))
+        self.assertNotContains(response, "退職者")
+
+    def test_master_api_returns_codes_without_prices(self):
+        Worker.objects.create(
+            name="山田太郎",
+            employee_number="E-100",
+            name_kana="ヤマダタロウ",
+            temoto_percent=22,
+        )
+        Site.objects.create(
+            name="北町",
+            site_code="S-100",
+            name_kana="キタマチ",
+            general_contractor=GeneralContractor.objects.create(name="青葉建設"),
+        )
+        sites = self.client.get(reverse("api_sites"))
+        workers = self.client.get(reverse("api_workers"))
+        self.assertEqual(sites.status_code, 200)
+        self.assertEqual(sites.json()["sites"][0]["code"], "S-100")
+        self.assertNotIn("unit_price", sites.content.decode())
+        body = workers.json()["workers"][0]
+        self.assertEqual(body["code"], "E-100")
+        self.assertEqual(body["name_kana"], "ヤマダタロウ")
+        self.assertNotIn("temoto_percent", body)
+        self.assertNotIn("unit_price", workers.content.decode())
+
+    def test_master_api_requires_login(self):
+        self.client.logout()
+        response = self.client.get(reverse("api_workers"))
+        self.assertEqual(response.status_code, 302)
+
+
+class SecretKeySettingsTests(SimpleTestCase):
+    def test_settings_do_not_keep_a_default_secret(self):
+        text = (Path(settings.BASE_DIR) / "config" / "settings.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("django-insecure-e8", text)
+        self.assertIn("ImproperlyConfigured", text)
+        self.assertIn('os.environ.get("DJANGO_DEBUG") == "1"', text)
 
 
 class _Environ:
@@ -1573,7 +1954,3 @@ def os_environ_set(**updates):
 
 def os_environ_without(*keys):
     return _Environ({}, remove=keys)
-
-
-
-

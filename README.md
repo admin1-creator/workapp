@@ -12,14 +12,32 @@
 | --- | --- |
 | デモURL | https://workapp-wx7x.onrender.com |
 | ログインURL | https://workapp-wx7x.onrender.com/login/ |
-| ユーザー名 | admin |
-| パスワード | Render_root |
+| ユーザー名 | demo |
+| パスワード | demo-workapp |
 
-このアカウントは Django の管理者です。アプリ本体と、マスタ保守用の管理画面（`/admin/`）の両方にログインできます。
+このアカウントは一般ユーザーです。伝票の入力・一覧・印刷はできます。管理画面（`/admin/`）には入れません。マスタの追加やユーザーの削除はできません。
+
+公開サイトでこのユーザーを使うには、Render の Environment に `DJANGO_DEMO_USERNAME`=`demo`、`DJANGO_DEMO_PASSWORD`=`demo-workapp` を入れてからデプロイします。未設定のときは作りません。同じユーザー名が既にあるときは、パスワードを上書きしません。
 
 新規登録はログイン画面の「新規登録」（`/signup/`）から行います。招待コードが一致した人だけ登録でき、登録後はログインできます。コードは環境変数 `SIGNUP_INVITE_CODE` です。値はこの README には書きません。公開サイトでは Render の Environment に設定します。未設定のときは誰も登録できません。
 
 架空のマスタと直近数日の伝票は、環境変数 `DEMO_SEED` が `1` のときだけ、まだ無い分を追加します。公開サイトでデモデータを入れる場合は、Render の Environment で `DEMO_SEED` を `1` にしてからデプロイします。未設定のときは何も追加しないので、業務データには混ざりません。既にある伝票は消して作り直しません。
+
+## 画面
+
+ログイン後は伝票検索から、入力・一覧・印刷へ進みます。
+
+![ログイン](docs/images/login.png)
+
+![伝票検索](docs/images/search.png)
+
+![作業記録一覧](docs/images/list.png)
+
+![伝票入力](docs/images/input.png)
+
+現場名は、文字を入れると候補が絞られます。
+
+![現場を検索して選ぶ](docs/images/site-search.gif)
 
 ソースは GitHub にあります。
 
@@ -83,9 +101,34 @@
 - 単価マスタ（元請、職人、手元％、応援）
 - 管理画面でのマスタ保守（元請、現場、作業員、応援企業、寸法、作業種類、単価、印刷書類）
 
+## 今後の予定
+
+企画書の「あったら良い機能」です。今の版には入っていません。
+
+- 配置予定と休日を伝票へ反映する
+- 元請ごとの専用請求書レイアウト
+- PDF と Excel への出力
+- 同じ日付・現場・職人の二重入力を警告する
+- 常傭と出来高を行の区分として明示する
+
+## 今後の展開（他部門との連携）
+
+今の伝票入力とは別の話です。会計ソフトへの送信は、今期はやらないことに入ったままです。
+
+現場と作業員は、名前ではなくコードで他部門へ渡します。現場は現場コード、作業員は社員番号です。名前を変えても、過去の伝票は同じ現場・同じ人のままです。同じ名前の人が二人いても、番号で区別します。
+
+渡す中身は、コード、名前、読み仮名、有効か無効か、です。単価と支払額は渡しません。無効のマスタは新しい伝票の候補から外れますが、過去の伝票には残ります。
+
+最初の受け渡しは、ログインした社内ユーザー向けの読み取り専用 API です。
+
+- 現場: `/api/sites/`
+- 作業員: `/api/workers/`
+
+CSV は、受け取る部門がファイルで欲しいと決まってから足します。部門ごとの権限は、受け取る部門ができてから分けます。
+
 ## 使用フレームワーク・ライブラリ
 
-バージョンは `requirements.txt` と `.python-version` に合わせています。
+バージョンは `requirements.txt`、`requirements-dev.txt`、`.python-version` に合わせています。
 
 | 名前 | バージョン | 用途 |
 | --- | --- | --- |
@@ -95,7 +138,7 @@
 | psycopg2-binary | 2.9.13 | PostgreSQL 接続 |
 | WhiteNoise | 6.12.0 | 本番の静的ファイル配信（brotli 付き） |
 | Gunicorn | 26.2.0 | 本番のアプリサーバー（`start.sh`） |
-| uvicorn | 0.54.0 | `requirements.txt` に含む。現在の起動コマンドでは使っていない |
+| Ruff | 0.16.10 | 開発時の整形とチェック（`requirements-dev.txt`。本番では入れない） |
 
 画面は Django テンプレート、HTML、CSS、JavaScript です。独立したフロントエンドフレームワークは使っていません。検索可能な選択には、Django 管理画面に同梱されている jQuery と Select2 を静的ファイルとして使っています。
 
@@ -105,7 +148,9 @@
 - 開発: Django の開発サーバー（`runserver`）と SQLite（`db.sqlite3`）
 - バージョン管理: Git / GitHub（`main`）
 - テスト: Django の `TestCase`（`workapp/tests.py`）
+- 整形: Ruff（`pip install -r requirements-dev.txt` のあと `ruff format .` と `ruff check .`。設定は `pyproject.toml`）
 - デプロイ定義: `render.yaml`、`build.sh`、`start.sh`
+- 自動チェック: GitHub Actions（`ruff format --check`、`ruff check`、`python manage.py test workapp`）
 
 ## 外部API
 
@@ -222,15 +267,13 @@ flowchart TD
     PrintOne[単票印刷]
     PrintPeriod[期間指定印刷]
     Monthly[月次集計]
-    Units[単価マスタ]
-    Admin[管理画面 /admin/]
+    Admin[管理画面 /admin/ 単価マスタもここ]
 
     Login --> Search
     Search --> Detail
     Search --> Create
     Search --> List
     Search --> Monthly
-    Search --> Units
     Create --> Review
     Review --> List
     List --> Edit
@@ -254,10 +297,7 @@ flowchart TD
 | 単票印刷 | `/workrecord/<id>/print/` |
 | 期間指定印刷 | `/workrecord/print/period/` |
 | 月次集計 | `/monthly/` |
-| 元請単価 | `/unit/moto/` |
-| 職人単価 | `/unit/shokunin/` |
-| 手元設定 | `/unit/temoto/` |
-| 応援単価 | `/unit/ouen/` |
+| 単価マスタ | `/admin/`（管理画面で保守。元請・職人・手元％・応援） |
 | 管理画面 | `/admin/` |
 
 ## ローカル開発環境の構築手順
@@ -270,10 +310,13 @@ cd workapp
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+copy .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
+
+`.env` の `SECRET_KEY` には、自分だけの長いランダムな文字列を入れます。`DJANGO_DEBUG` は `1` にします。`.env` は Git に含めません。
 
 ブラウザで http://127.0.0.1:8000/login/ を開き、`createsuperuser` で作ったユーザー名とパスワードでログインします。
 
@@ -284,6 +327,24 @@ python manage.py runserver
 ```powershell
 python manage.py test workapp
 ```
+
+## 環境変数
+
+値そのものは README に書きません。名前と意味だけです。手元では `.env.example` を `.env` にコピーして入れます。公開サイトでは Render の Environment に入れます。
+
+| 名前 | 説明 |
+| --- | --- |
+| `SECRET_KEY` | ログイン Cookie の署名に使います。必須です。空のまま本番を起動すると止まります。Render では自動生成の値をそのまま使います。 |
+| `DJANGO_DEBUG` | `1` のときだけ開発用の詳細エラーを出します。手元の `.env` では `1` にします。公開サイトには置きません。 |
+| `DATABASE_URL` | 本番の PostgreSQL です。Render がデータベースから渡します。未設定のときは手元の SQLite を使います。 |
+| `SIGNUP_INVITE_CODE` | 新規登録の招待コードです。未設定のときは誰も登録できません。 |
+| `DEMO_SEED` | `1` のときだけ、足りない架空マスタとデモ伝票を追加します。未設定のときは何も追加しません。 |
+| `DJANGO_DEMO_USERNAME` | デモ用の一般ユーザー名です。未設定のときは `demo` です。 |
+| `DJANGO_DEMO_PASSWORD` | デモ用ユーザーのパスワードです。未設定のときはこのユーザーを作りません。 |
+| `DJANGO_SUPERUSER_USERNAME` | 管理画面用のユーザー名です。未設定のときは作りません。 |
+| `DJANGO_SUPERUSER_EMAIL` | 管理ユーザーのメールです。空でも作れます。 |
+| `DJANGO_SUPERUSER_PASSWORD` | 管理ユーザーのパスワードです。未設定のときは作りません。同じユーザー名が既にあるときは上書きしません。 |
+| `WEB_CONCURRENCY` | 本番のプロセス数です。無料プランでは `1` にします。 |
 
 ## Render へのデプロイ
 

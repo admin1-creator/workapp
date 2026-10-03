@@ -11,6 +11,7 @@
 {% load display_labels %}
 
     <div class="no-print">
+        {% include "workapp/_messages.html" %}
         <form method="get">
             <p>
                 <label>開始日：<input type="date" name="from_date" value="{{ from_date }}" required></label>

@@ -38,7 +38,7 @@
         </tr>
         {% for record in records %}
         <tr>
-            <td>{{ record.worker }}</td>
+            <td>{{ record.party_kind }}</td>
             <td>{{ record.work_type }}</td>
             <td>{{ record.work_size }}{% if record.size_mark %}　{{ record.size_mark }}{% endif %}</td>
             <td>{{ record.work_amount }}</td>

@@ -32,6 +32,29 @@ else:
 PY
 fi
 
+# デモ用の一般ユーザー。管理画面には入れない。未設定のときは作らない。
+if [ -n "$DJANGO_DEMO_PASSWORD" ]; then
+  python - <<'PY'
+import os
+import django
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+django.setup()
+
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+username = os.environ.get("DJANGO_DEMO_USERNAME", "demo")
+password = os.environ.get("DJANGO_DEMO_PASSWORD", "")
+
+if not username or User.objects.filter(username=username).exists():
+    print("Demo user already exists.")
+else:
+    User.objects.create_user(username, "", password)
+    print("Demo user created successfully.")
+PY
+fi
+
 if [ "$DEMO_SEED" = "1" ]; then
   python manage.py seed_demo_data
 fi

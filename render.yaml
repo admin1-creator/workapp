@@ -25,3 +25,7 @@ services:
         sync: false
       - key: DEMO_SEED
         sync: false
+      - key: DJANGO_DEMO_USERNAME
+        sync: false
+      - key: DJANGO_DEMO_PASSWORD
+        sync: false

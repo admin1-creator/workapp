@@ -133,6 +133,8 @@
         var rows = Array.prototype.filter.call(table.querySelectorAll("tr"), function (row) {
             return row.querySelector("th") === null && !row.classList.contains("empty-row") && !row.classList.contains("page-fill");
         });
+        // 1ページ目は宛名と税額の欄があるので、表は16行まで。
+        // 2ページ目以降は表だけなので、25行まで。
         var firstPage = 16;
         var nextPage = 25;
         var colCount = header.querySelectorAll("th").length;

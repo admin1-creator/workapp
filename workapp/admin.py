@@ -1,8 +1,17 @@
 from django.contrib import admin
 from .models import (
-    GeneralContractor, Company, Site, WorkType,
-    Worker, WorkSize, WorkerDefaultRate, GeneralContractorRate, WorkerRate, CompanyRate,
-    PrintedDocument, PrintedDocumentItem,
+    GeneralContractor,
+    Company,
+    Site,
+    WorkType,
+    Worker,
+    WorkSize,
+    WorkerDefaultRate,
+    GeneralContractorRate,
+    WorkerRate,
+    CompanyRate,
+    PrintedDocument,
+    PrintedDocumentItem,
 )
 
 
@@ -15,9 +24,9 @@ class GeneralContractorAdmin(admin.ModelAdmin):
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ("name", "general_contractor")
-    search_fields = ("name",)
-    list_filter = ("general_contractor",)
+    list_display = ("name", "site_code", "name_kana", "is_active", "general_contractor")
+    search_fields = ("name", "site_code", "name_kana")
+    list_filter = ("is_active", "general_contractor")
     autocomplete_fields = ("general_contractor",)
 
 
@@ -41,21 +50,42 @@ class WorkerRateInline(admin.TabularInline):
 
 @admin.register(Worker)
 class WorkerAdmin(admin.ModelAdmin):
-    list_display = ("name", "use_common_rate", "temoto_percent", "company")
-    list_filter = ("use_common_rate",)
-    search_fields = ("name", "company")
+    list_display = (
+        "name",
+        "employee_number",
+        "name_kana",
+        "is_active",
+        "use_common_rate",
+        "temoto_percent",
+        "affiliation",
+    )
+    list_filter = ("is_active", "use_common_rate")
+    search_fields = ("name", "employee_number", "name_kana", "affiliation")
     exclude = ("worker_type",)
     inlines = (WorkerRateInline,)
     fieldsets = (
-        (None, {
-            "fields": ("name", "temoto_percent", "company"),
-            "description": "所属企業は通常空欄です。入力するのは専属のひとり親方だけで、だいたい本人名になります。応援企業は選びません。",
-        }),
-        ("単価", {
-            "fields": ("use_common_rate",),
-            "description": "共通単価を使う場合はチェックを付けたままにします。"
-                           "この人だけ単価が違う場合はチェックを外し、下の表で寸法ごとの単価を入力します。",
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "employee_number",
+                    "name_kana",
+                    "is_active",
+                    "temoto_percent",
+                    "affiliation",
+                ),
+                "description": "所属は通常空欄です。入力するのは専属のひとり親方だけで、だいたい本人名になります。応援企業は選びません。",
+            },
+        ),
+        (
+            "単価",
+            {
+                "fields": ("use_common_rate",),
+                "description": "共通単価を使う場合はチェックを付けたままにします。"
+                "この人だけ単価が違う場合はチェックを外し、下の表で寸法ごとの単価を入力します。",
+            },
+        ),
     )
 
     class Media:
@@ -105,13 +135,29 @@ class PrintedDocumentItemInline(admin.TabularInline):
 
 @admin.register(PrintedDocument)
 class PrintedDocumentAdmin(admin.ModelAdmin):
-    list_display = ("kind", "party_name", "period_start", "period_end", "status", "total_amount")
+    list_display = (
+        "kind",
+        "party_name",
+        "period_start",
+        "period_end",
+        "status",
+        "total_amount",
+    )
     search_fields = ("party_name",)
     autocomplete_fields = ("party_contractor", "party_worker", "party_company")
     inlines = (PrintedDocumentItemInline,)
     readonly_fields = (
-        "kind", "party_name", "party_contractor", "party_worker", "party_company",
-        "period_start", "period_end", "total_amount", "status", "printed_at", "created_at",
+        "kind",
+        "party_name",
+        "party_contractor",
+        "party_worker",
+        "party_company",
+        "period_start",
+        "period_end",
+        "total_amount",
+        "status",
+        "printed_at",
+        "created_at",
     )
 
 

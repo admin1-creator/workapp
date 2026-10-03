@@ -20,7 +20,14 @@
             <label>日付：<input type="date" name="date" value="{{ date }}"></label>
         </p>
         <p>
-            <label>現場名：<input type="text" name="site" value="{{ site }}" placeholder="一部でも可"></label>
+            <label>現場名：
+                <select name="site">
+                    <option value="">指定しない</option>
+                    {% for site_option in sites %}
+                    <option value="{{ site_option.pk }}" data-reading="{{ site_option.name_kana }}" {% if site == site_option.pk|stringformat:"s" %}selected{% endif %}>{{ site_option.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
         </p>
         <p>
             <label>作業員／応援：
@@ -28,7 +35,7 @@
                     <option value="">指定しない</option>
                     <optgroup label="作業員">
                         {% for worker in workers %}
-                        <option value="{{ worker.party_key }}" {% if party == worker.party_key %}selected{% endif %}>{{ worker.name }}</option>
+                        <option value="{{ worker.party_key }}" data-reading="{{ worker.name_kana }}" {% if party == worker.party_key %}selected{% endif %}>{{ worker.name }}</option>
                         {% endfor %}
                     </optgroup>
                     <optgroup label="応援">

@@ -32,20 +32,74 @@ CONTRACTORS = (
     {"name": "東雲建設", "closing_day": 15},
 )
 SITES = (
-    {"name": "北町マンション新築", "contractor": "青葉建設"},
-    {"name": "北町マンション改修", "contractor": "青葉建設"},
-    {"name": "北町マンション外構", "contractor": "青葉建設"},
-    {"name": "南校舎改修", "contractor": "みどり工務店"},
-    {"name": "南校舎新築", "contractor": "みどり工務店"},
-    {"name": "中央ビル解体", "contractor": "東雲建設"},
+    {
+        "name": "北町マンション新築",
+        "kana": "キタマチマンションシンチク",
+        "contractor": "青葉建設",
+    },
+    {
+        "name": "北町マンション改修",
+        "kana": "キタマチマンションカイシュウ",
+        "contractor": "青葉建設",
+    },
+    {
+        "name": "北町マンション外構",
+        "kana": "キタマチマンションガイコウ",
+        "contractor": "青葉建設",
+    },
+    {
+        "name": "南校舎改修",
+        "kana": "ミナミコウシャカイシュウ",
+        "contractor": "みどり工務店",
+    },
+    {
+        "name": "南校舎新築",
+        "kana": "ミナミコウシャシンチク",
+        "contractor": "みどり工務店",
+    },
+    {
+        "name": "中央ビル解体",
+        "kana": "チュウオウビルカイタイ",
+        "contractor": "東雲建設",
+    },
 )
 WORKERS = (
-    {"name": "山田太郎", "worker_type": "職人", "temoto_percent": None},
-    {"name": "佐藤健一", "worker_type": "職人", "temoto_percent": None},
-    {"name": "鈴木一郎", "worker_type": "職人", "temoto_percent": None},
-    {"name": "高橋次郎", "worker_type": "手元", "temoto_percent": None},
-    {"name": "伊藤三郎", "worker_type": "手元", "temoto_percent": 22},
-    {"name": "中村五郎", "worker_type": "手元", "temoto_percent": None},
+    {
+        "name": "山田太郎",
+        "kana": "ヤマダタロウ",
+        "worker_type": "職人",
+        "temoto_percent": None,
+    },
+    {
+        "name": "佐藤健一",
+        "kana": "サトウケンイチ",
+        "worker_type": "職人",
+        "temoto_percent": None,
+    },
+    {
+        "name": "鈴木一郎",
+        "kana": "スズキイチロウ",
+        "worker_type": "職人",
+        "temoto_percent": None,
+    },
+    {
+        "name": "高橋次郎",
+        "kana": "タカハシジロウ",
+        "worker_type": "手元",
+        "temoto_percent": None,
+    },
+    {
+        "name": "伊藤三郎",
+        "kana": "イトウサブロウ",
+        "worker_type": "手元",
+        "temoto_percent": 22,
+    },
+    {
+        "name": "中村五郎",
+        "kana": "ナカムラゴロウ",
+        "worker_type": "手元",
+        "temoto_percent": None,
+    },
 )
 COMPANIES = ("東洋サポート",)
 WORK_TYPES = ("圧接", "溶接", "切断")
@@ -89,30 +143,35 @@ class Command(BaseCommand):
         }
         sites = {}
         for item in SITES:
-            sites[item["name"]] = Site.objects.get_or_create(
+            site, _created = Site.objects.get_or_create(
                 name=item["name"],
                 general_contractor=contractors[item["contractor"]],
-            )[0]
+            )
+            if not site.name_kana:
+                site.name_kana = item["kana"]
+                site.save(update_fields=["name_kana"])
+            sites[item["name"]] = site
         workers = {}
         for item in WORKERS:
-            workers[item["name"]] = Worker.objects.get_or_create(
+            worker, _created = Worker.objects.get_or_create(
                 name=item["name"],
                 defaults={
                     "worker_type": item["worker_type"],
                     "temoto_percent": item["temoto_percent"],
                     "use_common_rate": True,
+                    "name_kana": item["kana"],
                 },
-            )[0]
+            )
+            if not worker.name_kana:
+                worker.name_kana = item["kana"]
+                worker.save(update_fields=["name_kana"])
+            workers[item["name"]] = worker
         companies = {
-            name: Company.objects.get_or_create(name=name)[0]
-            for name in COMPANIES
+            name: Company.objects.get_or_create(name=name)[0] for name in COMPANIES
         }
         for name in WORK_TYPES:
             WorkType.objects.get_or_create(name=name)
-        sizes = {
-            name: WorkSize.objects.get_or_create(name=name)[0]
-            for name in SIZES
-        }
+        sizes = {name: WorkSize.objects.get_or_create(name=name)[0] for name in SIZES}
         for size_name, size in sizes.items():
             WorkerDefaultRate.objects.get_or_create(
                 work_size=size,
@@ -144,9 +203,11 @@ class Command(BaseCommand):
         if created_vouchers == 0:
             self.stdout.write("デモ伝票は既にあるので、伝票は追加しません。")
             return
-        self.stdout.write(self.style.SUCCESS(
-            f"デモ伝票 {created_vouchers} 件（作業記録 {created_rows} 行）を追加しました。"
-        ))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"デモ伝票 {created_vouchers} 件（作業記録 {created_rows} 行）を追加しました。"
+            )
+        )
 
 
 def _demo_vouchers(sites, workers, companies, sizes, today):
@@ -156,22 +217,24 @@ def _demo_vouchers(sites, workers, companies, sizes, today):
         helper_names = HELPER_GROUPS[index % len(HELPER_GROUPS)]
         site_name = SITE_CYCLE[index % len(SITE_CYCLE)]
         size_name = SIZES[index % len(SIZES)]
-        vouchers.append({
-            "voucher_no": f"{VOUCHER_PREFIX}{1001 + index}",
-            "date": today - timedelta(days=index % (RECENT_DAY_SPAN + 1)),
-            "site": sites[site_name],
-            "craftsman": workers[CRAFTSMEN[index % len(CRAFTSMEN)]],
-            "helpers": tuple(workers[name] for name in helper_names),
-            "company": company if index % 2 == 0 else None,
-            "lines": (
-                {
-                    "work_type": WORK_TYPES[index % len(WORK_TYPES)],
-                    "size": sizes[size_name],
-                    "qty": 4 + (index % 5),
-                    "mark": "長尺" if index % 4 == 0 else "",
-                },
-            ),
-        })
+        vouchers.append(
+            {
+                "voucher_no": f"{VOUCHER_PREFIX}{1001 + index}",
+                "date": today - timedelta(days=index % (RECENT_DAY_SPAN + 1)),
+                "site": sites[site_name],
+                "craftsman": workers[CRAFTSMEN[index % len(CRAFTSMEN)]],
+                "helpers": tuple(workers[name] for name in helper_names),
+                "company": company if index % 2 == 0 else None,
+                "lines": (
+                    {
+                        "work_type": WORK_TYPES[index % len(WORK_TYPES)],
+                        "size": sizes[size_name],
+                        "qty": 4 + (index % 5),
+                        "mark": "長尺" if index % 4 == 0 else "",
+                    },
+                ),
+            }
+        )
     return vouchers
 
 
@@ -202,7 +265,6 @@ def _records_for_voucher(voucher):
             "site": site.name,
             "work_type": line["work_type"],
             "work_size": size.name,
-            "dimension": size.name,
             "work_amount": qty,
             "remark": "",
             "size_mark": line["mark"],
@@ -219,44 +281,53 @@ def _records_for_voucher(voucher):
             "temoto2": helpers[1].name if helper_count > 1 else "",
             "temoto3": helpers[2].name if helper_count > 2 else "",
         }
-        rows.append(WorkRecord(
-            **common,
-            worker="元請",
-            helpers=voucher["craftsman"].name,
-            temoto_percent=deduct_percent or None,
-            shokunin_deduction_percent=None,
-            unit_price=billing,
-            total_price=billing * qty,
-        ))
-        rows.append(WorkRecord(
-            **common,
-            worker="職人",
-            helpers=voucher["craftsman"].name,
-            temoto_percent=deduct_percent or None,
-            shokunin_deduction_percent=deduct_percent if helper_count else None,
-            unit_price=pay,
-            total_price=pay_total - sum(helper_amounts),
-        ))
-        for helper, amount in zip(helpers, helper_amounts):
-            rows.append(WorkRecord(
+        rows.append(
+            WorkRecord(
                 **common,
-                worker="手元",
-                helpers=helper.name,
-                temoto_percent=helper.temoto_percent,
+                party_kind="元請",
+                craftsman=voucher["craftsman"].name,
+                temoto_percent=deduct_percent or None,
                 shokunin_deduction_percent=None,
+                unit_price=billing,
+                total_price=billing * qty,
+            )
+        )
+        rows.append(
+            WorkRecord(
+                **common,
+                party_kind="職人",
+                craftsman=voucher["craftsman"].name,
+                temoto_percent=deduct_percent or None,
+                shokunin_deduction_percent=deduct_percent if helper_count else None,
                 unit_price=pay,
-                total_price=amount,
-            ))
+                total_price=pay_total - sum(helper_amounts),
+            )
+        )
+        for helper, amount in zip(helpers, helper_amounts):
+            rows.append(
+                WorkRecord(
+                    **common,
+                    party_kind="手元",
+                    craftsman=voucher["craftsman"].name,
+                    helpers=helper.name,
+                    temoto_percent=helper.temoto_percent,
+                    shokunin_deduction_percent=None,
+                    unit_price=pay,
+                    total_price=amount,
+                )
+            )
         if company is not None:
-            rows.append(WorkRecord(
-                **common,
-                worker="応援",
-                helpers=voucher["craftsman"].name,
-                temoto_percent=None,
-                shokunin_deduction_percent=None,
-                unit_price=ouen,
-                total_price=ouen * qty,
-            ))
+            rows.append(
+                WorkRecord(
+                    **common,
+                    party_kind="応援",
+                    craftsman=voucher["craftsman"].name,
+                    temoto_percent=None,
+                    shokunin_deduction_percent=None,
+                    unit_price=ouen,
+                    total_price=ouen * qty,
+                )
+            )
     return rows
 
 

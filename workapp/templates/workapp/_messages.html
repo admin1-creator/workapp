@@ -1,0 +1,13 @@
+{% if messages %}
+<style>
+    .flash { list-style: none; margin: 12px 0; padding: 0; }
+    .flash li { margin: 0 0 8px; padding: 8px 12px; border: 1px solid #ccc; }
+    .flash .error { border-color: #a33; background: #fff4f4; }
+    .flash .success { border-color: #393; background: #f4fff4; }
+</style>
+<ul class="flash">
+    {% for message in messages %}
+    <li class="{{ message.tags }}">{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
