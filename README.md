@@ -92,7 +92,7 @@
 - 単価の自動取得（元請単価、職人は個別単価がなければ共通単価、応援単価）
 - 手元人数による職人控除と、手元個人％の支払への反映
 - 相手別一覧（元請 / 職人 / 手元 / 応援）
-- 編集、更新前の差分確認、削除
+- 編集、削除
 - 単票印刷
 - 期間指定印刷（元請は請求書、職人・手元・応援は支払書）
 - 印刷済みの表示と、印刷時点の金額の固定
@@ -263,7 +263,6 @@ flowchart TD
     Review[入力確認]
     List[相手別一覧]
     Edit[編集]
-    Confirm[更新確認]
     PrintOne[単票印刷]
     PrintPeriod[期間指定印刷]
     Monthly[月次集計]
@@ -279,8 +278,7 @@ flowchart TD
     List --> Edit
     List --> PrintOne
     List --> PrintPeriod
-    Edit --> Confirm
-    Confirm --> List
+    Edit --> Review
     Login --> Admin
 ```
 
@@ -293,7 +291,6 @@ flowchart TD
 | 入力確認 | `/workrecord/review/` |
 | 相手別一覧 | `/workrecord/list/` |
 | 編集 | `/workrecord/edit/<id>/` |
-| 更新確認 | `/workrecord/confirm/` |
 | 単票印刷 | `/workrecord/<id>/print/` |
 | 期間指定印刷 | `/workrecord/print/period/` |
 | 月次集計 | `/monthly/` |

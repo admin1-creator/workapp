@@ -106,38 +106,6 @@ class WorkRecordBasicForm(forms.ModelForm):
         queryset=Company.objects.all(), required=False, label="応援企業"
     )
 
-    work_type = forms.CharField(
-        required=False,
-        label="作業内容",
-        widget=forms.TextInput(
-            attrs={
-                "class": "ime-hiragana",
-                "lang": "ja",
-                "autocomplete": "off",
-            }
-        ),
-    )
-    work_size = forms.CharField(
-        required=False,
-        label="寸法",
-    )
-    work_amount = forms.IntegerField(
-        required=False,
-        label="作業量",
-    )
-    remark = forms.CharField(
-        required=False,
-        label="備考",
-    )
-    unit_price = forms.IntegerField(
-        required=False,
-        label="単価",
-    )
-    total_price = forms.IntegerField(
-        required=False,
-        label="合計金額",
-    )
-
     field_order = [
         "voucher_no",
         "date",
@@ -150,12 +118,6 @@ class WorkRecordBasicForm(forms.ModelForm):
         "temoto2",
         "temoto3",
         "company",
-        "work_type",
-        "work_size",
-        "work_amount",
-        "remark",
-        "unit_price",
-        "total_price",
     ]
 
     class Meta:
@@ -165,24 +127,12 @@ class WorkRecordBasicForm(forms.ModelForm):
             "date",
             "site",
             "company",
-            "work_type",
-            "work_size",
-            "work_amount",
-            "remark",
-            "unit_price",
-            "total_price",
         ]
         labels = {
             "voucher_no": "伝票番号",
             "date": "日付",
             "site": "現場名",
             "company": "応援企業",
-            "work_type": "作業内容",
-            "work_size": "寸法",
-            "work_amount": "作業量",
-            "remark": "備考",
-            "unit_price": "単価",
-            "total_price": "合計金額",
         }
 
     def __init__(self, *args, **kwargs):
@@ -191,15 +141,6 @@ class WorkRecordBasicForm(forms.ModelForm):
             css = field.widget.attrs.get("class", "")
             field.widget.attrs["class"] = (css + " field-input").strip()
         self._include_saved_masters()
-        for key in (
-            "work_type",
-            "work_size",
-            "work_amount",
-            "remark",
-            "unit_price",
-            "total_price",
-        ):
-            self.fields.pop(key, None)
         self._sync_contractor_displays()
 
     def _include_saved_masters(self):

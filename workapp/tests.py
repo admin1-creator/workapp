@@ -1720,7 +1720,7 @@ class PercentFloorTests(TestCase):
         self.assertNotEqual(_amount_at_percent(851, 10), 86)
 
     def test_tax_10_percent_floors(self):
-        ctx = _pay_tax_context("shokunin", 851)
+        ctx = _pay_tax_context(851)
         self.assertEqual(ctx["pay_tax"], "85")
         self.assertEqual(ctx["pay_tax_included"], "936")
 
@@ -1972,7 +1972,7 @@ class EditByMasterIdTests(LoggedInTestCase):
             data.update(extra)
         opened = self.client.post(reverse("workrecord_create"), data, follow=True)
         self.assertEqual(opened.status_code, 200)
-        self.assertNotContains(opened, "有効な選択肢ではありません")
+        self.assertNotContains(opened, "正しく選択してください")
         self.assertContains(opened, "上書きする")
         saved = self.client.post(
             reverse("workrecord_review"), {"action": "overwrite"}, follow=True

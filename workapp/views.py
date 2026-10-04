@@ -2045,7 +2045,7 @@ def _next_month_end_label(end_date):
     return f"{year}年{month}月末"
 
 
-def _pay_tax_context(kind, total):
+def _pay_tax_context(total):
     base = int(total or 0)
     tax = _amount_at_percent(base, CONSUMPTION_TAX_PERCENT)
     return {
@@ -2121,7 +2121,7 @@ def _kagami_context(scope_key, pay_total):
             lines[0]["item"] = "売上"
     else:
         lines, total = _default_kagami_lines(pay_total)
-    tax = _pay_tax_context("worker", total)
+    tax = _pay_tax_context(total)
     return {
         "kagami_lines": lines,
         "kagami_total": total,
@@ -2943,7 +2943,7 @@ def workrecord_print(request, pk):
             **_kagami_context(kagami_scope, print_total),
             "kagami_pay_month": _next_month_end_label(getattr(record, "date", None)),
             **_print_party_context(worker_type, party_name),
-            **_pay_tax_context(worker_type, print_total),
+            **_pay_tax_context(print_total),
         },
     )
 
@@ -3215,7 +3215,7 @@ def workrecord_print_period(request):
                 ),
                 total_sum,
             ),
-            **_pay_tax_context(kind, total_sum),
+            **_pay_tax_context(total_sum),
         },
     )
 
