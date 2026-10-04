@@ -877,6 +877,25 @@ class PartyFilterTests(LoggedInTestCase):
         self.assertContains(moto_edit, "伝票の編集")
         self.assertContains(moto_edit, "圧接")
 
+    def test_edit_form_shows_saved_billing_rate_and_amount(self):
+        WorkSize.objects.create(name="D19表示")
+        Site.objects.create(name="現場X", general_contractor=self.gc_a)
+        WorkRecord.objects.filter(voucher_no="V1").update(
+            work_size="D19表示",
+            work_amount=2,
+        )
+        WorkRecord.objects.filter(voucher_no="V1", party_kind="元請").update(
+            unit_price=3210
+        )
+        row = WorkRecord.objects.get(voucher_no="V1", party_kind="職人")
+        edit = self.client.get(reverse("workrecord_edit", args=[row.pk]), follow=True)
+        self.assertContains(edit, 'name="rate_billing_1" value="3210"')
+        self.assertContains(edit, 'name="manual_billing_1" value="6420"')
+        self.assertContains(edit, "if (billingId) setNum")
+        self.assertContains(
+            edit, "if (window.refreshWorkLinePrices) window.refreshWorkLinePrices();"
+        )
+
     def test_create_and_edit_use_searchable_site_and_contractor(self):
         site = Site.objects.create(
             name="現場X",

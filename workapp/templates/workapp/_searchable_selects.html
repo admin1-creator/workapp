@@ -68,6 +68,7 @@
         $("#id_primary_company").on("change", syncContractors);
         syncContractors();
         window.billingContractorId = billingContractorId;
+        if (window.refreshWorkLinePrices) window.refreshWorkLinePrices();
         $(document).on("keydown", "form", function(e) {
             if (e.key !== "Enter") return;
             const t = e.target;

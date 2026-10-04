@@ -187,7 +187,6 @@ function refreshWorkLine(row, fetchRates) {
     }
 
     var size = row.querySelector(".work-size");
-    var amount = row.querySelector(".work-amount");
     var sizeId = size ? size.value : "";
     var billingId = window.billingContractorId ? window.billingContractorId() : "";
     var worker = document.getElementById("id_worker");
@@ -211,13 +210,10 @@ function refreshWorkLine(row, fetchRates) {
         fetchUnitPrice("company", companyId, sizeId)
     ]).then(function(prices) {
         if (!row.querySelector(".price-mode") || row.querySelector(".price-mode").value === "manual") return;
-        var currentQty = amount ? amount.value : "";
-        setNum(row.querySelector(".rate-billing"), prices[0]);
-        setNum(row.querySelector(".rate-pay"), prices[1]);
-        setNum(row.querySelector(".rate-ouen"), prices[2]);
-        setNum(row.querySelector("[name^='manual_billing_']"), lineTotal(prices[0], currentQty));
-        setNum(row.querySelector("[name^='manual_pay_']"), lineTotal(prices[1], currentQty));
-        setNum(row.querySelector("[name^='manual_ouen_']"), lineTotal(prices[2], currentQty));
+        if (billingId) setNum(row.querySelector(".rate-billing"), prices[0]);
+        if (workerId) setNum(row.querySelector(".rate-pay"), prices[1]);
+        if (companyId) setNum(row.querySelector(".rate-ouen"), prices[2]);
+        applyTotalsFromRates(row);
     });
 }
 
@@ -241,7 +237,12 @@ document.addEventListener("DOMContentLoaded", function() {
     if (window.jQuery) {
         jQuery("#id_worker, #id_company, #id_primary_company, #id_site").on("change", refreshWorkLinePrices);
     }
-    refreshWorkLinePrices();
+    document.querySelectorAll("tr.work-line").forEach(function(row) {
+        var mode = row.querySelector(".price-mode");
+        if (mode && mode.value === "manual") return;
+        applyTotalsFromRates(row);
+    });
+    if (window.billingContractorId) refreshWorkLinePrices();
 });
 </script>
 </body>

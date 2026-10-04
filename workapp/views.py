@@ -1358,6 +1358,17 @@ def _build_review_sections(data):
     return sections, existing_groups
 
 
+def _shown_line_amount(manual, rate, qty):
+    if manual not in (None, ""):
+        return manual
+    if rate in (None, "") or qty in (None, ""):
+        return ""
+    try:
+        return int(rate) * int(qty)
+    except TypeError, ValueError:
+        return ""
+
+
 def _work_lines_from_session(data):
     types = data.get("work_types") or []
     sizes = data.get("work_sizes") or []
@@ -1390,9 +1401,9 @@ def _work_lines_from_session(data):
                 "remark": remarks[i] if i < len(remarks) else "",
                 "size_mark": size_marks[i] if i < len(size_marks) else "",
                 "price_mode": modes[i] if i < len(modes) else "master",
-                "manual_billing": "" if billing in (None, "") else billing,
-                "manual_pay": "" if pay in (None, "") else pay,
-                "manual_ouen": "" if ouen in (None, "") else ouen,
+                "manual_billing": _shown_line_amount(billing, rate_billing, amount),
+                "manual_pay": _shown_line_amount(pay, rate_pay, amount),
+                "manual_ouen": _shown_line_amount(ouen, rate_ouen, amount),
                 "rate_billing": "" if rate_billing in (None, "") else rate_billing,
                 "rate_pay": "" if rate_pay in (None, "") else rate_pay,
                 "rate_ouen": "" if rate_ouen in (None, "") else rate_ouen,
