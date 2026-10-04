@@ -3,7 +3,6 @@ target-version = "py314"
 line-length = 88
 extend-exclude = [
     "*/migrations/*",
-    "workapp/_gh_setup.py",
 ]
 
 [tool.ruff.lint]

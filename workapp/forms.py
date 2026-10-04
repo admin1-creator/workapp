@@ -4,14 +4,13 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .constants import HELPER_FIELDS, MAX_HELPER_COUNT
+from .constants import HELPER_FIELDS
 from .models import (
     WorkRecord,
     Site,
     GeneralContractor,
     Worker,
     Company,
-    WorkSize,
     unique_named,
 )
 
@@ -191,19 +190,7 @@ class WorkRecordBasicForm(forms.ModelForm):
         for field in self.fields.values():
             css = field.widget.attrs.get("class", "")
             field.widget.attrs["class"] = (css + " field-input").strip()
-        instance = kwargs.get("instance")
-        if not instance or not instance.pk:
-            for key in (
-                "work_type",
-                "work_size",
-                "work_amount",
-                "remark",
-                "unit_price",
-                "total_price",
-            ):
-                self.fields.pop(key, None)
-            self._sync_contractor_displays()
-            return
+        self._include_saved_masters()
         for key in (
             "work_type",
             "work_size",
@@ -212,95 +199,25 @@ class WorkRecordBasicForm(forms.ModelForm):
             "unit_price",
             "total_price",
         ):
-            self.fields[key].required = False
-        self._bind_named_choices(instance)
-        size_name = (instance.work_size or "").strip()
-        size_names = list(
-            WorkSize.objects.order_by("name").values_list("name", flat=True)
-        )
-        if size_name and size_name not in size_names:
-            size_names = [size_name] + size_names
-        self.fields["work_size"].widget = forms.Select(
-            choices=[("", "選択してください")] + [(name, name) for name in size_names]
-        )
-        self.fields["work_size"].initial = size_name
-        self.initial["work_size"] = size_name
-        size_css = self.fields["work_size"].widget.attrs.get("class", "")
-        self.fields["work_size"].widget.attrs["class"] = (
-            size_css + " field-input"
-        ).strip()
-        for key in HELPER_FIELDS:
-            name = getattr(instance, key, "") or ""
-            if name:
-                helper = getattr(instance, f"{key}_worker", None) or unique_named(
-                    Worker, name
-                )
-                if helper:
-                    self._keep_inactive_choice(key, helper)
-                    self.fields[key].initial = helper
-        role = (instance.party_kind or "").strip()
-        if (
-            role in ("手元", "temoto")
-            and not getattr(instance, "temoto1", "")
-            and instance.helpers
-        ):
-            names = [
-                name.strip()
-                for name in instance.helpers.replace("、", ",").split(",")
-                if name.strip()
-            ]
-            for i, name in enumerate(names[:MAX_HELPER_COUNT], start=1):
-                helper = unique_named(Worker, name)
-                if helper:
-                    self._keep_inactive_choice(f"temoto{i}", helper)
-                    self.fields[f"temoto{i}"].initial = helper
+            self.fields.pop(key, None)
         self._sync_contractor_displays()
 
-    def _bind_named_choices(self, instance):
-        site = getattr(instance, "site_master", None) or (
-            unique_named(Site, instance.site) if instance.site else None
+    def _include_saved_masters(self):
+        pairs = (
+            ("site", Site),
+            ("worker", Worker),
+            ("temoto1", Worker),
+            ("temoto2", Worker),
+            ("temoto3", Worker),
         )
-        if site:
-            self._keep_inactive_choice("site", site)
-            self.initial["site"] = site.pk
-            self.fields["site"].initial = site
-        primary_name = getattr(instance, "primary_company", "") or ""
-        if primary_name:
-            primary = getattr(instance, "primary_master", None) or unique_named(
-                GeneralContractor, primary_name
-            )
-            if primary:
-                self.initial["primary_company"] = primary.pk
-                self.fields["primary_company"].initial = primary
-        company = getattr(instance, "company_master", None)
-        if company is None and instance.company:
-            company = unique_named(Company, instance.company)
-        if company:
-            self.initial["company"] = company.pk
-            self.fields["company"].initial = company
-        self.fields["worker"].required = False
-        self.fields["worker"].empty_label = "なし"
-        craftsman_name = (instance.craftsman or "").strip()
-        role = (instance.party_kind or "").strip()
-        if not craftsman_name and role not in (
-            "元請",
-            "moto",
-            "手元",
-            "temoto",
-            "応援",
-            "ouen",
-            "職人",
-            "shokunin",
-        ):
-            craftsman_name = role
-        if craftsman_name:
-            craftsman = getattr(instance, "craftsman_worker", None) or unique_named(
-                Worker, craftsman_name
-            )
-            if craftsman:
-                self._keep_inactive_choice("worker", craftsman)
-                self.initial["worker"] = craftsman.pk
-                self.fields["worker"].initial = craftsman
+        for field_name, model in pairs:
+            raw = self.data.get(field_name) if self.is_bound else None
+            if raw in (None, ""):
+                raw = self.initial.get(field_name)
+            if raw in (None, ""):
+                continue
+            obj = model.objects.filter(pk=raw).first()
+            self._keep_inactive_choice(field_name, obj)
 
     def _keep_inactive_choice(self, field_name, obj):
         if obj is None or not hasattr(obj, "is_active") or obj.is_active:
@@ -363,12 +280,8 @@ class WorkRecordBasicForm(forms.ModelForm):
         gc_name = (
             site.general_contractor.name if site and site.general_contractor_id else ""
         )
-        if not gc_name and getattr(self.instance, "pk", None):
-            gc_name = self.instance.general_contractor or ""
         primary = self._lookup_primary()
         billing = (primary.name if primary else "") or gc_name
-        if not billing and getattr(self.instance, "pk", None):
-            billing = self.instance.billing_contractor or gc_name
         self.fields["general_contractor_display"].initial = gc_name
         self.fields["billing_contractor_display"].initial = billing
         self.initial["general_contractor_display"] = gc_name
@@ -388,9 +301,6 @@ class WorkRecordBasicForm(forms.ModelForm):
             raise forms.ValidationError("手元がいるときは、職人も選んでください。")
         if worker and worker.pk in selected:
             raise forms.ValidationError("同じ人を職人と手元の両方には選べません。")
-        if "work_size" in self.fields:
-            size = (cleaned.get("work_size") or "").strip()
-            cleaned["work_size"] = size or None
         site = cleaned.get("site")
         primary = cleaned.get("primary_company")
         gc_name = (

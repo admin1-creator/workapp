@@ -1918,6 +1918,162 @@ class MasterLinkTests(LoggedInTestCase):
         self.assertEqual(response.status_code, 302)
 
 
+class EditByMasterIdTests(LoggedInTestCase):
+    def _voucher(self, site, worker, gc):
+        return WorkRecord.objects.create(
+            voucher_no="EDIT-1",
+            date=date(2026, 10, 1),
+            site=site.name,
+            site_master=site,
+            party_kind="職人",
+            craftsman=worker.name,
+            craftsman_worker=worker,
+            general_contractor=gc.name,
+            contractor_master=gc,
+            billing_contractor=gc.name,
+            billing_master=gc,
+            work_type="圧接",
+            total_price=100,
+        )
+
+    def _edit_html(self, record):
+        response = self.client.get(
+            reverse("workrecord_edit", args=[record.pk]), follow=True
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _select_html(self, html, name):
+        import re
+
+        match = re.search(rf'<select name="{name}".*?</select>', html, re.S)
+        self.assertIsNotNone(match)
+        return match.group(0)
+
+    def _selected_value(self, html, name):
+        import re
+
+        match = re.search(r'value="(\d+)" selected', self._select_html(html, name))
+        self.assertIsNotNone(match)
+        return match.group(1)
+
+    def _overwrite_from_edit(self, record, extra=None):
+        html = self._edit_html(record)
+        data = {
+            "voucher_no": record.voucher_no,
+            "date": record.date.isoformat(),
+            "site": self._selected_value(html, "site"),
+            "worker": self._selected_value(html, "worker"),
+            "work_type_1": record.work_type or "圧接",
+            "work_amount_1": "1",
+            "price_mode_1": "master",
+        }
+        if extra:
+            data.update(extra)
+        opened = self.client.post(reverse("workrecord_create"), data, follow=True)
+        self.assertEqual(opened.status_code, 200)
+        self.assertNotContains(opened, "有効な選択肢ではありません")
+        self.assertContains(opened, "上書きする")
+        saved = self.client.post(
+            reverse("workrecord_review"), {"action": "overwrite"}, follow=True
+        )
+        self.assertEqual(saved.status_code, 200)
+        return html
+
+    def test_renamed_worker_stays_selected_on_edit(self):
+        gc = GeneralContractor.objects.create(name="元請改名")
+        site = Site.objects.create(name="現場改名", general_contractor=gc)
+        worker = Worker.objects.create(name="職人太郎")
+        record = self._voucher(site, worker, gc)
+        worker.name = "職人次郎"
+        worker.save(update_fields=["name"])
+        html = self._overwrite_from_edit(record)
+        worker_html = self._select_html(html, "worker")
+        self.assertIn(f'value="{worker.pk}" selected', worker_html)
+        self.assertIn("職人次郎", worker_html)
+        self.assertNotIn("職人太郎", worker_html)
+        saved = WorkRecord.objects.get(voucher_no="EDIT-1", party_kind="職人")
+        self.assertEqual(saved.craftsman_worker_id, worker.pk)
+        self.assertEqual(saved.craftsman, "職人次郎")
+
+    def test_duplicate_worker_name_keeps_the_saved_person(self):
+        gc = GeneralContractor.objects.create(name="元請同名")
+        site = Site.objects.create(name="現場同名", general_contractor=gc)
+        size = WorkSize.objects.create(name="D19同名")
+        first = Worker.objects.create(name="同名", use_common_rate=False)
+        second = Worker.objects.create(name="同名", use_common_rate=False)
+        WorkerRate.objects.create(worker=first, work_size=size, unit_price=500)
+        WorkerRate.objects.create(worker=second, work_size=size, unit_price=900)
+        record = self._voucher(site, second, gc)
+        record.work_size = size.name
+        record.work_amount = 1
+        record.save(update_fields=["work_size", "work_amount"])
+        html = self._overwrite_from_edit(
+            record, {"work_size_1": str(size.pk), "work_amount_1": "1"}
+        )
+        worker_html = self._select_html(html, "worker")
+        self.assertIn(f'value="{second.pk}" selected', worker_html)
+        self.assertNotIn(f'value="{first.pk}" selected', worker_html)
+        saved = WorkRecord.objects.get(voucher_no="EDIT-1", party_kind="職人")
+        self.assertEqual(saved.craftsman_worker_id, second.pk)
+        self.assertEqual(saved.unit_price, 900)
+
+    def test_inactive_site_remains_a_choice_and_can_be_saved(self):
+        gc = GeneralContractor.objects.create(name="元請無効")
+        site = Site.objects.create(
+            name="現場無効", general_contractor=gc, is_active=False
+        )
+        worker = Worker.objects.create(name="職人無効", is_active=False)
+        record = self._voucher(site, worker, gc)
+        html = self._overwrite_from_edit(record)
+        site_html = self._select_html(html, "site")
+        worker_html = self._select_html(html, "worker")
+        self.assertIn(f'value="{site.pk}" selected', site_html)
+        self.assertIn("現場無効", site_html)
+        self.assertIn(f'value="{worker.pk}" selected', worker_html)
+        saved = WorkRecord.objects.get(voucher_no="EDIT-1", party_kind="職人")
+        self.assertEqual(saved.site_master_id, site.pk)
+        self.assertEqual(saved.craftsman_worker_id, worker.pk)
+
+    def test_billing_and_ouen_rates_use_saved_ids(self):
+        from .models import CompanyRate, GeneralContractorRate
+
+        size = WorkSize.objects.create(name="D19編集")
+        named = GeneralContractor.objects.create(name="表示名の元請")
+        billed = GeneralContractor.objects.create(name="請求先の元請")
+        GeneralContractorRate.objects.create(
+            general_contractor=named, work_size=size, unit_price=111
+        )
+        GeneralContractorRate.objects.create(
+            general_contractor=billed, work_size=size, unit_price=3210
+        )
+        named_company = Company.objects.create(name="表示名の応援")
+        billed_company = Company.objects.create(name="単価のある応援")
+        CompanyRate.objects.create(company=named_company, work_size=size, unit_price=50)
+        CompanyRate.objects.create(
+            company=billed_company, work_size=size, unit_price=900
+        )
+        payload = {
+            "billing_contractor": named.name,
+            "billing_contractor_id": billed.pk,
+            "general_contractor": named.name,
+            "company": named_company.name,
+            "company_id": billed_company.pk,
+            "work_types": ["圧接"],
+            "work_sizes": [str(size.pk)],
+            "work_amounts": [2],
+            "price_modes": ["master"],
+            "manual_billings": [None],
+            "manual_ouens": [None],
+            "rate_billings": [None],
+            "rate_ouens": [None],
+        }
+        moto_rows, _totals, _alloc = _moto_work_rows(payload)
+        ouen_rows, _ouen_totals, _ouen_alloc = _ouen_work_rows(payload)
+        self.assertEqual(moto_rows[0]["unit_price"], 3210)
+        self.assertEqual(ouen_rows[0]["unit_price"], 900)
+
+
 class SecretKeySettingsTests(SimpleTestCase):
     def test_settings_do_not_keep_a_default_secret(self):
         text = (Path(settings.BASE_DIR) / "config" / "settings.py").read_text(

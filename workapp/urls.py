@@ -34,11 +34,6 @@ urlpatterns = [
         "workrecord/review/", _login(views.workrecord_review), name="workrecord_review"
     ),
     path(
-        "workrecord/confirm/",
-        _login(views.workrecord_confirm_update),
-        name="workrecord_confirm_update",
-    ),
-    path(
         "workrecord/print/period/",
         _login(views.workrecord_print_period),
         name="workrecord_print_period",

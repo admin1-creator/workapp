@@ -684,14 +684,9 @@ def _record_snapshot(record):
     return {key: getattr(record, key) for key in keys}
 
 
-def _save_work_record(fields, instance=None):
+def _save_work_record(fields):
     payload = _deserialize_record_fields(fields)
     _ensure_payload_fits_db(payload)
-    if instance is not None and instance.pk:
-        for key, value in payload.items():
-            setattr(instance, key, value)
-        instance.save()
-        return instance
     return WorkRecord.objects.create(**payload)
 
 
@@ -967,6 +962,19 @@ def _unit_price_for_role(records, labels, key):
     return None
 
 
+def _linked_master(records, fk_name, model, name):
+    for record in records:
+        if record is None:
+            continue
+        pk = getattr(record, f"{fk_name}_id", None)
+        if not pk:
+            continue
+        obj = model.objects.filter(pk=pk).first()
+        if obj is not None:
+            return obj
+    return unique_named(model, name)
+
+
 def _basic_record_from_records(records):
     first = records[0]
     shokunin = next(
@@ -1042,20 +1050,30 @@ def _basic_record_from_records(records):
         )
     else:
         worker_name = getattr(first, "craftsman", "") or ""
-    worker = Worker.objects.filter(name=worker_name).first() if worker_name else None
-    site = Site.objects.filter(name=first.site).first() if first.site else None
-    company = (
-        Company.objects.filter(name=first.company).first() if first.company else None
+    worker = _linked_master(
+        [shokunin, *records], "craftsman_worker", Worker, worker_name
     )
-    primary = (
-        GeneralContractor.objects.filter(name=first.primary_company).first()
-        if first.primary_company
-        else None
+    site = _linked_master(records, "site_master", Site, first.site)
+    company = _linked_master(records, "company_master", Company, first.company)
+    primary = _linked_master(
+        records, "primary_master", GeneralContractor, first.primary_company
     )
+    billing = _linked_master(
+        records, "billing_master", GeneralContractor, first.billing_contractor
+    )
+    contractor = _linked_master(
+        records, "contractor_master", GeneralContractor, first.general_contractor
+    )
+    if site is not None and site.general_contractor_id:
+        general_contractor_id = site.general_contractor_id
+    else:
+        general_contractor_id = contractor.pk if contractor else None
     temoto_ids = {}
     for key in HELPER_FIELDS:
-        name = getattr(first, key, "") or ""
-        person = Worker.objects.filter(name=name).first() if name else None
+        name = ""
+        for record in records:
+            name = getattr(record, key, "") or name
+        person = _linked_master(records, f"{key}_worker", Worker, name)
         temoto_ids[f"{key}_id"] = person.pk if person else None
     return {
         "voucher_no": first.voucher_no,
@@ -1063,12 +1081,13 @@ def _basic_record_from_records(records):
         "site": first.site,
         "site_id": site.pk if site else None,
         "general_contractor": first.general_contractor,
-        "general_contractor_id": site.general_contractor_id if site else None,
+        "general_contractor_id": general_contractor_id,
         "primary_company": getattr(first, "primary_company", "") or "",
         "primary_company_id": primary.pk if primary else None,
         "billing_contractor": getattr(first, "billing_contractor", "")
         or first.general_contractor,
-        "worker": worker_name,
+        "billing_contractor_id": billing.pk if billing else general_contractor_id,
+        "worker": worker.name if worker else worker_name,
         "worker_id": worker.pk if worker else None,
         "temoto1": first.temoto1,
         "temoto2": first.temoto2,
@@ -1131,13 +1150,18 @@ def _try_resolve_worker(data):
 
 
 def _moto_rate_contractor(data):
+    for key in ("billing_contractor_id", "general_contractor_id"):
+        pk = data.get(key)
+        if not pk:
+            continue
+        contractor = GeneralContractor.objects.filter(pk=pk).first()
+        if contractor is not None:
+            return contractor
     billing = (data.get("billing_contractor") or "").strip()
     site_contractor = (data.get("general_contractor") or "").strip()
-    contractor = (
-        GeneralContractor.objects.filter(name=billing).first() if billing else None
-    )
+    contractor = unique_named(GeneralContractor, billing) if billing else None
     if contractor is None and site_contractor:
-        contractor = GeneralContractor.objects.filter(name=site_contractor).first()
+        contractor = unique_named(GeneralContractor, site_contractor)
     return contractor
 
 
@@ -1234,9 +1258,11 @@ def _temoto_work_rows(data, worker):
 def _ouen_work_rows(data):
     work_rows = []
     company_name = str(data.get("company") or "").strip()
-    company = (
-        Company.objects.filter(name=company_name).first() if company_name else None
-    )
+    company = None
+    if data.get("company_id"):
+        company = Company.objects.filter(pk=data.get("company_id")).first()
+    if company is None and company_name:
+        company = unique_named(Company, company_name)
     for line in _iter_work_lines(data):
         size_obj, _row = _line_base(line)
         unit_price = OUEN_UNIT
@@ -1417,40 +1443,35 @@ def _work_lines_from_session(data):
     return lines
 
 
+def _id_from_name(model, name):
+    obj = unique_named(model, name)
+    return obj.pk if obj else None
+
+
 def _form_from_basic_record(data):
     initial = {
         "voucher_no": data.get("voucher_no") or "",
         "date": data.get("date") or "",
     }
-    site_id = data.get("site_id")
-    if not site_id and data.get("site"):
-        site = Site.objects.filter(name=data["site"]).first()
-        site_id = site.pk if site else None
-    company_id = data.get("company_id")
-    if not company_id and data.get("company"):
-        company = Company.objects.filter(name=data["company"]).first()
-        company_id = company.pk if company else None
+    site_id = data.get("site_id") or _id_from_name(Site, data.get("site"))
+    company_id = data.get("company_id") or _id_from_name(Company, data.get("company"))
     if site_id:
         initial["site"] = site_id
-    primary_id = data.get("primary_company_id")
-    if not primary_id and data.get("primary_company"):
-        primary = GeneralContractor.objects.filter(name=data["primary_company"]).first()
-        primary_id = primary.pk if primary else None
+    primary_id = data.get("primary_company_id") or _id_from_name(
+        GeneralContractor, data.get("primary_company")
+    )
     if primary_id:
         initial["primary_company"] = primary_id
     if data.get("worker_id"):
         initial["worker"] = data["worker_id"]
-    elif data.get("worker"):
-        person = Worker.objects.filter(name=data["worker"]).first()
-        if person:
-            initial["worker"] = person.pk
+    else:
+        worker_id = _id_from_name(Worker, data.get("worker"))
+        if worker_id:
+            initial["worker"] = worker_id
     if company_id:
         initial["company"] = company_id
     for key in HELPER_FIELDS:
-        pk = data.get(f"{key}_id")
-        if not pk and data.get(key):
-            person = Worker.objects.filter(name=data[key]).first()
-            pk = person.pk if person else None
+        pk = data.get(f"{key}_id") or _id_from_name(Worker, data.get(key))
         if pk:
             initial[key] = pk
     return WorkRecordForm(initial=initial)
@@ -1737,8 +1758,6 @@ def workrecord_create(request):
             work_lines = _work_lines_from_session({})
             unit_role = ""
 
-    from .models import WorkSize
-
     locked_party_labels = request.session.get("locked_party_labels") or []
     line_error = request.session.pop("line_error", "")
     if line_error:
@@ -1804,7 +1823,7 @@ def workrecord_review(request):
     )
 
 
-def _classify_record(record, shokunin_names=None, temoto_names=None):
+def _classify_record(record):
     worker_label = _party_kind_text(record)
     if worker_label == "元請":
         return (
@@ -2695,94 +2714,6 @@ def workrecord_list(request):
             "unbilled_count": unbilled_count,
             "closing_print_qs": closing_print_qs,
             "previous_print_qs": previous_print_qs,
-        },
-    )
-
-
-CONFIRM_COMPARE_FIELDS = [
-    ("voucher_no", "伝票番号"),
-    ("date", "日付"),
-    ("site", "現場名"),
-    ("party_kind", "区分"),
-    ("work_type", "作業種類"),
-    ("work_size", "寸法"),
-    ("work_amount", "作業量"),
-    ("remark", "備考"),
-    ("helpers", "手元"),
-    ("unit_price", "単価"),
-    ("total_price", "合計金額"),
-    ("temoto_percent", "手元％"),
-    ("shokunin_deduction_percent", "職人控除％"),
-]
-
-
-def workrecord_confirm_update(request):
-    pending = request.session.get("pending_save")
-    if not pending:
-        return redirect("workrecord_list")
-
-    if request.method == "POST":
-        action = request.POST.get("action")
-        conflicts = pending.get("conflicts") or []
-        creates = pending.get("creates") or []
-        if action in ("cancel", "back"):
-            request.session.pop("pending_save", None)
-            return redirect(reverse("workrecord_create") + "?restore=1")
-        if action == "overwrite":
-            for item in conflicts:
-                existing = WorkRecord.objects.filter(pk=item["existing_id"]).first()
-                _save_work_record(item["incoming"], instance=existing)
-            for fields in creates:
-                _save_work_record(fields)
-        elif action == "create":
-            for item in conflicts:
-                _save_work_record(item["incoming"])
-            for fields in creates:
-                _save_work_record(fields)
-        else:
-            return redirect("workrecord_confirm_update")
-        request.session.pop("pending_save", None)
-        return redirect("workrecord_list")
-
-    comparisons = []
-    for item in pending.get("conflicts") or []:
-        rows = []
-        existing = item.get("existing") or {}
-        incoming = item.get("incoming") or {}
-        for key, label in CONFIRM_COMPARE_FIELDS:
-            old = existing.get(key)
-            new = incoming.get(key)
-            rows.append(
-                {
-                    "label": label,
-                    "old": old,
-                    "new": new,
-                    "changed": old != new,
-                }
-            )
-        comparisons.append(
-            {
-                "existing_id": item.get("existing_id"),
-                "rows": rows,
-            }
-        )
-
-    create_previews = []
-    for fields in pending.get("creates") or []:
-        create_previews.append(
-            [
-                {"label": label, "value": fields.get(key)}
-                for key, label in CONFIRM_COMPARE_FIELDS
-                if fields.get(key) not in (None, "")
-            ]
-        )
-
-    return render(
-        request,
-        "workapp/confirm_update.html",
-        {
-            "comparisons": comparisons,
-            "create_previews": create_previews,
         },
     )
 
