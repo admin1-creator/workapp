@@ -47,11 +47,17 @@ User = get_user_model()
 username = os.environ.get("DJANGO_DEMO_USERNAME", "demo")
 password = os.environ.get("DJANGO_DEMO_PASSWORD", "")
 
-if not username or User.objects.filter(username=username).exists():
-    print("Demo user already exists.")
+user = User.objects.filter(username=username).first() if username else None
+if user is None:
+    if username and password:
+        User.objects.create_user(username, "", password)
+        print("Demo user created successfully.")
 else:
-    User.objects.create_user(username, "", password)
-    print("Demo user created successfully.")
+    user.set_password(password)
+    user.is_staff = False
+    user.is_superuser = False
+    user.save()
+    print("Demo user password updated.")
 PY
 fi
 

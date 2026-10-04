@@ -17,7 +17,7 @@
 
 このアカウントは一般ユーザーです。伝票の入力・一覧・印刷はできます。管理画面（`/admin/`）には入れません。マスタの追加やユーザーの削除はできません。
 
-公開サイトでこのユーザーを使うには、Render の Environment に `DJANGO_DEMO_USERNAME`=`demo`、`DJANGO_DEMO_PASSWORD`=`demo-workapp` を入れてからデプロイします。未設定のときは作りません。同じユーザー名が既にあるときは、パスワードを上書きしません。
+公開サイトでこのユーザーを使うには、Render の Environment に `DJANGO_DEMO_USERNAME`=`demo`、`DJANGO_DEMO_PASSWORD`=`demo-workapp` を入れてからデプロイします。未設定のときは作りません。同じユーザー名が既にあるときは、そのデプロイでパスワードをこの値に合わせ、管理画面には入れない一般ユーザーにします。
 
 新規登録はログイン画面の「新規登録」（`/signup/`）から行います。招待コードが一致した人だけ登録でき、登録後はログインできます。コードは環境変数 `SIGNUP_INVITE_CODE` です。値はこの README には書きません。公開サイトでは Render の Environment に設定します。未設定のときは誰も登録できません。
 
@@ -340,7 +340,7 @@ python manage.py test workapp
 | `SIGNUP_INVITE_CODE` | 新規登録の招待コードです。未設定のときは誰も登録できません。 |
 | `DEMO_SEED` | `1` のときだけ、足りない架空マスタとデモ伝票を追加します。未設定のときは何も追加しません。 |
 | `DJANGO_DEMO_USERNAME` | デモ用の一般ユーザー名です。未設定のときは `demo` です。 |
-| `DJANGO_DEMO_PASSWORD` | デモ用ユーザーのパスワードです。未設定のときはこのユーザーを作りません。 |
+| `DJANGO_DEMO_PASSWORD` | デモ用ユーザーのパスワードです。未設定のときはこのユーザーを作りません。既にあるときは、この値に合わせます。 |
 | `DJANGO_SUPERUSER_USERNAME` | 管理画面用のユーザー名です。未設定のときは作りません。 |
 | `DJANGO_SUPERUSER_EMAIL` | 管理ユーザーのメールです。空でも作れます。 |
 | `DJANGO_SUPERUSER_PASSWORD` | 管理ユーザーのパスワードです。未設定のときは作りません。同じユーザー名が既にあるときは上書きしません。 |
