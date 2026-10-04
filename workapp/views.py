@@ -47,39 +47,11 @@ from .forms import SignupForm, WorkRecordForm
 
 OUEN_UNIT = 16000
 
-# 手元人数ごとの割合（職人合計に対する％）
-# 1人: 職人から ONE_HELPER_DEDUCTION_PERCENT を引き、手元へ同率
-# 2人: 職人から MULTI_HELPER_DEDUCTION_PERCENT を引き、手元は 20% ずつ
-# 3人: 職人から MULTI_HELPER_DEDUCTION_PERCENT を引き、手元はその合計を人数で分割
+# 職人から引く割合は人数だけで決まる。手元へ渡す割合は別。
+# 空欄の手元: 1人35%、2人は20%ずつ、3人は13%ずつ。
+# 登録％の手元: その％を人数で割る。差は埋めない。
 TWO_HELPER_EACH_PERCENT = 20
-TEMOTO_SHARE_RULES = {
-    1: {
-        "shokunin_deduction": ONE_HELPER_DEDUCTION_PERCENT,
-        "temoto_pool": ONE_HELPER_DEDUCTION_PERCENT,
-        "temoto_each": ONE_HELPER_DEDUCTION_PERCENT,
-    },
-    2: {
-        "shokunin_deduction": MULTI_HELPER_DEDUCTION_PERCENT,
-        "temoto_pool": MULTI_HELPER_DEDUCTION_PERCENT,
-        "temoto_each": TWO_HELPER_EACH_PERCENT,
-    },
-    3: {
-        "shokunin_deduction": MULTI_HELPER_DEDUCTION_PERCENT,
-        "temoto_pool": MULTI_HELPER_DEDUCTION_PERCENT,
-        "temoto_each": None,
-    },
-}
-
-
-def _temoto_share_rules(helper_count):
-    return TEMOTO_SHARE_RULES.get(
-        int(helper_count or 0),
-        {
-            "shokunin_deduction": 0,
-            "temoto_pool": 0,
-            "temoto_each": 0,
-        },
-    )
+THREE_HELPER_EACH_PERCENT = 13
 
 
 def _shokunin_deduction_percent(helper_count):
@@ -112,11 +84,28 @@ def _temoto_workers_from_data(data):
     return workers[:MAX_HELPER_COUNT]
 
 
-def _temoto_allocation(helpers):
-    """個人％は、その人が1人で手元に入ったときの率である。
+def _blank_helper_percent(count):
+    if count == 1:
+        return ONE_HELPER_DEDUCTION_PERCENT
+    if count == 2:
+        return TWO_HELPER_EACH_PERCENT
+    if count >= 3:
+        return THREE_HELPER_EACH_PERCENT
+    return 0
 
-    複数人に各自の％をそのまま足すと、職人控除（1人35%、2人以上40%）を超える。
-    人数で割ってから配り、合計が1人分の率に収まるようにする。割り切れない端数は切り捨てる。
+
+def _helper_pay_percent(helper, count):
+    raw = getattr(helper, "temoto_percent", None)
+    if raw is None:
+        return _blank_helper_percent(count), None
+    return int(raw) // int(count or 1), int(raw)
+
+
+def _temoto_allocation(helpers):
+    """職人控除は人数固定。手元の％は人ごとに決める。
+
+    空欄は1人35%、2人20%、3人13%。登録％は人数で割る。
+    職人から引いた額と手元へ渡した額の差は埋めない。
     """
     helpers = [helper for helper in (helpers or []) if helper]
     count = len(helpers)
@@ -132,54 +121,23 @@ def _temoto_allocation(helpers):
     if count == 0:
         return empty
 
-    has_individual = any(
-        getattr(helper, "temoto_percent", None) is not None for helper in helpers
-    )
     shares = []
-    count_deduction = _shokunin_deduction_percent(count)
-    if has_individual:
-        for helper in helpers:
-            raw = helper.temoto_percent if helper.temoto_percent is not None else 0
-            applied = raw // count
-            shares.append(
-                {
-                    "name": helper.name,
-                    "raw_percent": raw,
-                    "percent": applied,
-                }
-            )
-        helper_pool = sum(share["percent"] for share in shares)
-        return {
-            "mode": "individual",
-            "count": count,
-            "shokunin_deduction": count_deduction,
-            "temoto_pool": helper_pool,
-            "temoto_each": None,
-            "split_pool": False,
-            "shares": shares,
-        }
-
-    rules = _temoto_share_rules(count)
-    split_pool = rules["temoto_each"] is None
-    if split_pool:
-        each = (rules["temoto_pool"] or 0) // count
-    else:
-        each = rules["temoto_each"] or 0
     for helper in helpers:
+        applied, raw = _helper_pay_percent(helper, count)
         shares.append(
             {
                 "name": helper.name,
-                "raw_percent": None,
-                "percent": each,
+                "raw_percent": raw,
+                "percent": applied,
             }
         )
     return {
         "mode": "count",
         "count": count,
-        "shokunin_deduction": count_deduction,
-        "temoto_pool": rules["temoto_pool"] or 0,
-        "temoto_each": rules["temoto_each"],
-        "split_pool": split_pool,
+        "shokunin_deduction": _shokunin_deduction_percent(count),
+        "temoto_pool": sum(share["percent"] for share in shares),
+        "temoto_each": None,
+        "split_pool": False,
         "shares": shares,
     }
 

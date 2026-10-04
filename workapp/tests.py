@@ -27,6 +27,7 @@ from unittest.mock import patch
 
 from .views import (
     _amount_at_percent,
+    _temoto_allocation,
     _apply_voucher_save,
     _collect_posted_work_lines,
     _moto_work_rows,
@@ -247,6 +248,33 @@ class PartyFilterTests(LoggedInTestCase):
         )
         self.assertFalse(form.is_valid())
         self.assertIn("手元がいるときは", str(form.errors))
+
+    def test_craftsman_and_company_cannot_share_a_voucher(self):
+        from .forms import WorkRecordForm
+
+        site = Site.objects.create(name="現場X", general_contractor=self.gc_a)
+        both = WorkRecordForm(
+            data={
+                "voucher_no": "V8",
+                "date": "2026-09-01",
+                "site": str(site.pk),
+                "worker": str(self.shokunin.pk),
+                "company": str(self.company.pk),
+            }
+        )
+        self.assertFalse(both.is_valid())
+        self.assertIn("職人と応援", str(both.errors))
+        ouen_helper = WorkRecordForm(
+            data={
+                "voucher_no": "V8",
+                "date": "2026-09-01",
+                "site": str(site.pk),
+                "company": str(self.company.pk),
+                "temoto1": str(self.temoto.pk),
+            }
+        )
+        self.assertFalse(ouen_helper.is_valid())
+        self.assertIn("応援の伝票に手元", str(ouen_helper.errors))
         listed = self.client.get(
             reverse("workrecord_list"),
             {
@@ -1756,6 +1784,31 @@ class PercentFloorTests(TestCase):
         )
         self.assertEqual(amounts, [350])
 
+    def test_helper_percents_follow_blank_or_registered_rate(self):
+        blank = type("Person", (), {"name": "空欄", "temoto_percent": None})
+        special = type("Person", (), {"name": "登録", "temoto_percent": 22})
+        one = _temoto_allocation([blank])
+        self.assertEqual(one["shokunin_deduction"], 35)
+        self.assertEqual(one["shares"][0]["percent"], 35)
+        two = _temoto_allocation([blank, blank])
+        self.assertEqual(two["shokunin_deduction"], 40)
+        self.assertEqual([share["percent"] for share in two["shares"]], [20, 20])
+        three = _temoto_allocation([blank, blank, blank])
+        self.assertEqual(three["shokunin_deduction"], 40)
+        self.assertEqual([share["percent"] for share in three["shares"]], [13, 13, 13])
+        self.assertEqual(_temoto_line_amounts(10000, three), [1300, 1300, 1300])
+        mixed = _temoto_allocation([blank, special])
+        self.assertEqual(mixed["shokunin_deduction"], 40)
+        self.assertEqual([share["percent"] for share in mixed["shares"]], [20, 11])
+        solo = _temoto_allocation([special])
+        self.assertEqual(solo["shokunin_deduction"], 35)
+        self.assertEqual(solo["shares"][0]["percent"], 22)
+        rows = [{"total_price": 10000}]
+        totals = _with_temoto_deduction(rows, solo)
+        self.assertEqual(totals["deduction"], 3500)
+        self.assertEqual(rows[0]["total_price"], 6500)
+        self.assertEqual(_temoto_line_amounts(10000, solo), [2200])
+
 
 @override_settings(SIGNUP_INVITE_CODE="invite-demo")
 class SignupTests(TestCase):
@@ -1834,6 +1887,9 @@ class DemoSeedTests(TestCase):
                     "voucher_no", flat=True
                 )
             )
+            WorkRecord.objects.filter(voucher_no="DEMO-1001", party_kind="職人").update(
+                total_price=1
+            )
             call_command("seed_demo_data")
         self.assertGreaterEqual(len(voucher_numbers), 10)
         self.assertLessEqual(len(voucher_numbers), 20)
@@ -1871,6 +1927,22 @@ class DemoSeedTests(TestCase):
             3,
         )
         self.assertFalse(Worker.objects.filter(name__contains="花子").exists())
+        replaced = WorkRecord.objects.get(voucher_no="DEMO-1001", party_kind="職人")
+        self.assertNotEqual(replaced.total_price, 1)
+        for voucher_no in voucher_numbers:
+            kinds = set(
+                WorkRecord.objects.filter(voucher_no=voucher_no).values_list(
+                    "party_kind", flat=True
+                )
+            )
+            self.assertFalse({"職人", "応援"}.issubset(kinds))
+            if "応援" in kinds:
+                self.assertNotIn("手元", kinds)
+                self.assertFalse(
+                    WorkRecord.objects.filter(voucher_no=voucher_no)
+                    .exclude(temoto1="")
+                    .exists()
+                )
 
 
 class MasterLinkTests(LoggedInTestCase):

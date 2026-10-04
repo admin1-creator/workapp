@@ -17,9 +17,11 @@ from workapp.models import (
     WorkerDefaultRate,
 )
 from workapp.views import (
-    TWO_HELPER_EACH_PERCENT,
     _amount_at_percent,
     _shokunin_deduction_percent,
+    _helper_pay_percent,
+    _temoto_allocation,
+    _temoto_line_amounts,
     _worker_unit_price,
 )
 
@@ -191,11 +193,10 @@ class Command(BaseCommand):
                 )
 
         today = timezone.localdate()
+        WorkRecord.objects.filter(voucher_no__startswith=VOUCHER_PREFIX).delete()
         created_vouchers = 0
         created_rows = 0
         for voucher in _demo_vouchers(sites, workers, companies, sizes, today):
-            if WorkRecord.objects.filter(voucher_no=voucher["voucher_no"]).exists():
-                continue
             rows = _records_for_voucher(voucher)
             WorkRecord.objects.bulk_create(rows)
             created_vouchers += 1
@@ -212,27 +213,35 @@ class Command(BaseCommand):
 
 def _demo_vouchers(sites, workers, companies, sizes, today):
     company = companies["東洋サポート"]
+    craftsman_count = VOUCHER_COUNT - len(HELPER_GROUPS)
     vouchers = []
     for index in range(VOUCHER_COUNT):
-        helper_names = HELPER_GROUPS[index % len(HELPER_GROUPS)]
         site_name = SITE_CYCLE[index % len(SITE_CYCLE)]
         size_name = SIZES[index % len(SIZES)]
+        line = {
+            "work_type": WORK_TYPES[index % len(WORK_TYPES)],
+            "size": sizes[size_name],
+            "qty": 4 + (index % 5),
+            "mark": "長尺" if index % 4 == 0 else "",
+        }
+        if index < craftsman_count:
+            helper_names = HELPER_GROUPS[index % len(HELPER_GROUPS)]
+            craftsman = workers[CRAFTSMEN[index % len(CRAFTSMEN)]]
+            helpers = tuple(workers[name] for name in helper_names)
+            ouen = None
+        else:
+            craftsman = None
+            helpers = ()
+            ouen = company
         vouchers.append(
             {
                 "voucher_no": f"{VOUCHER_PREFIX}{1001 + index}",
                 "date": today - timedelta(days=index % (RECENT_DAY_SPAN + 1)),
                 "site": sites[site_name],
-                "craftsman": workers[CRAFTSMEN[index % len(CRAFTSMEN)]],
-                "helpers": tuple(workers[name] for name in helper_names),
-                "company": company if index % 2 == 0 else None,
-                "lines": (
-                    {
-                        "work_type": WORK_TYPES[index % len(WORK_TYPES)],
-                        "size": sizes[size_name],
-                        "qty": 4 + (index % 5),
-                        "mark": "長尺" if index % 4 == 0 else "",
-                    },
-                ),
+                "craftsman": craftsman,
+                "helpers": helpers,
+                "company": ouen,
+                "lines": (line,),
             }
         )
     return vouchers
@@ -253,12 +262,14 @@ def _records_for_voucher(voucher):
             general_contractor=site.general_contractor,
             work_size=size,
         ).unit_price
-        pay = _worker_unit_price(voucher["craftsman"], size)
+        craftsman = voucher["craftsman"]
+        pay = _worker_unit_price(craftsman, size) if craftsman else None
         ouen = None
         if company is not None:
             ouen = CompanyRate.objects.get(company=company, work_size=size).unit_price
-        pay_total = pay * qty
-        helper_amounts = _helper_amounts(pay_total, helpers, deduct_percent)
+        pay_total = (pay or 0) * qty
+        helper_amounts = _helper_amounts(pay_total, helpers)
+        deduction = _amount_at_percent(pay_total, deduct_percent) if helper_count else 0
         common = {
             "voucher_no": voucher["voucher_no"],
             "date": voucher["date"],
@@ -281,47 +292,50 @@ def _records_for_voucher(voucher):
             "temoto2": helpers[1].name if helper_count > 1 else "",
             "temoto3": helpers[2].name if helper_count > 2 else "",
         }
+        craftsman_name = craftsman.name if craftsman else ""
         rows.append(
             WorkRecord(
                 **common,
                 party_kind="元請",
-                craftsman=voucher["craftsman"].name,
+                craftsman=craftsman_name,
                 temoto_percent=deduct_percent or None,
                 shokunin_deduction_percent=None,
                 unit_price=billing,
                 total_price=billing * qty,
             )
         )
-        rows.append(
-            WorkRecord(
-                **common,
-                party_kind="職人",
-                craftsman=voucher["craftsman"].name,
-                temoto_percent=deduct_percent or None,
-                shokunin_deduction_percent=deduct_percent if helper_count else None,
-                unit_price=pay,
-                total_price=pay_total - sum(helper_amounts),
-            )
-        )
-        for helper, amount in zip(helpers, helper_amounts):
+        if craftsman is not None:
             rows.append(
                 WorkRecord(
                     **common,
-                    party_kind="手元",
-                    craftsman=voucher["craftsman"].name,
-                    helpers=helper.name,
-                    temoto_percent=helper.temoto_percent,
-                    shokunin_deduction_percent=None,
+                    party_kind="職人",
+                    craftsman=craftsman_name,
+                    temoto_percent=deduct_percent or None,
+                    shokunin_deduction_percent=deduct_percent if helper_count else None,
                     unit_price=pay,
-                    total_price=amount,
+                    total_price=pay_total - (deduction or 0),
                 )
             )
+            for helper, amount in zip(helpers, helper_amounts):
+                applied, _raw = _helper_pay_percent(helper, helper_count)
+                rows.append(
+                    WorkRecord(
+                        **common,
+                        party_kind="手元",
+                        craftsman=craftsman_name,
+                        helpers=helper.name,
+                        temoto_percent=applied or None,
+                        shokunin_deduction_percent=None,
+                        unit_price=pay,
+                        total_price=amount,
+                    )
+                )
         if company is not None:
             rows.append(
                 WorkRecord(
                     **common,
                     party_kind="応援",
-                    craftsman=voucher["craftsman"].name,
+                    craftsman=craftsman_name,
                     temoto_percent=None,
                     shokunin_deduction_percent=None,
                     unit_price=ouen,
@@ -331,19 +345,7 @@ def _records_for_voucher(voucher):
     return rows
 
 
-def _helper_amounts(pay_total, helpers, deduct_percent):
-    count = len(helpers)
-    if count == 0:
+def _helper_amounts(pay_total, helpers):
+    if not helpers:
         return []
-    if count == 1 and helpers[0].temoto_percent is not None:
-        return [_amount_at_percent(pay_total, helpers[0].temoto_percent)]
-    if count == 2:
-        return [
-            _amount_at_percent(pay_total, TWO_HELPER_EACH_PERCENT),
-            _amount_at_percent(pay_total, TWO_HELPER_EACH_PERCENT),
-        ]
-    pool = _amount_at_percent(pay_total, deduct_percent)
-    each = pool // count
-    amounts = [each] * count
-    amounts[0] += pool - each * count
-    return amounts
+    return _temoto_line_amounts(pay_total, _temoto_allocation(helpers))

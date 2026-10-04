@@ -238,6 +238,11 @@ class WorkRecordBasicForm(forms.ModelForm):
         if len(selected) != len(set(selected)):
             raise forms.ValidationError("手元は同じ人を重複して選べません。")
         worker = cleaned.get("worker")
+        company = cleaned.get("company")
+        if company and worker:
+            raise forms.ValidationError("同じ伝票に職人と応援は入れられません。")
+        if company and selected:
+            raise forms.ValidationError("応援の伝票に手元は入れられません。")
         if selected and not worker:
             raise forms.ValidationError("手元がいるときは、職人も選んでください。")
         if worker and worker.pk in selected:
